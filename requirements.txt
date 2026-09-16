@@ -1,6 +1,10 @@
-faster-whisper
+faster-whisper>=1.2
+onnx-asr[hub]
 psutil
 nvidia-ml-py
-# GPU (NVIDIA) only — CUDA runtime libraries for faster-whisper on Windows
+
+# NVIDIA GPU (CUDA 12). On a CPU-only machine, replace onnxruntime-gpu with onnxruntime
+# and skip the two nvidia-* packages.
+onnxruntime-gpu
 nvidia-cublas-cu12
 nvidia-cudnn-cu12==9.*

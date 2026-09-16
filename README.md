@@ -1,14 +1,22 @@
 # Local Transcriber
 
-Small local tool to transcribe audio or video with Whisper. Runs on this machine only — nothing is uploaded.
+A small desktop tool for transcribing audio and video on your own machine. Nothing is uploaded.
 
-## Setup (once)
+- **Open-source models:** Whisper large-v3 and turbo, Distil-Whisper, a Hindi fine-tune, NVIDIA Parakeet, or any CTranslate2 Whisper model
+- **Choice of language and device:** GPU or CPU
+- **Output formats:** TXT, SRT, VTT, JSON and Markdown
+- **Live status:** how much of the media is done, ETA and speed, plus CPU, RAM, GPU and VRAM usage
+- **Themes:** Dark, Light and Terminal
+
+## Setup
+
+Requires Python 3.10+ and [ffmpeg](https://ffmpeg.org/) on `PATH`.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-The first time you use a model, it downloads (large-v3 is ~3 GB) and is cached afterwards.
+Models download the first time you use them and are cached afterwards (in `~/.cache/huggingface`).
 
 ## Run
 
@@ -18,20 +26,33 @@ Double-click `run.bat`, or:
 python transcriber.py
 ```
 
+## Models
+
+| Model | Best for | Languages | Size |
+|---|---|---|---|
+| **Whisper large-v3** | Highest accuracy; mixed or accented speech | 99 | ~3 GB |
+| **Whisper large-v3-turbo** | Nearly large-v3 quality, several times faster | 99 | ~1.6 GB |
+| **Distil-Whisper large-v3.5** | Fast English | English | ~1.5 GB |
+| **Whisper large-v2 Hindi** ([Collabora](https://huggingface.co/collabora/faster-whisper-large-v2-hindi)) | Hindi speech | Hindi | ~3 GB |
+| **NVIDIA Parakeet TDT 0.6B v3** ([onnx-asr](https://github.com/istupakov/onnx-asr)) | Very fast, punctuated English and European languages | English + 24 European (no Indian languages) | ~2.4 GB |
+| Whisper medium / small / base / tiny | Lighter machines and quick tests | 99 | 75 MB – 1.5 GB |
+| **Custom** | Any CTranslate2 Whisper model: a Hugging Face repo id or a local folder | — | — |
+
 ## Options
 
 | Option | Notes |
 |---|---|
-| Language | Auto-detect, or force one (English, Hindi, Marathi, Gujarati, …). Forcing is more reliable for short or mixed-language audio |
-| Model | `large-v3` most accurate · `large-v3-turbo` much faster, nearly as good · `small`/`base` for CPU |
-| Task | `transcribe` keeps the spoken language · `translate` outputs English |
-| Device | Auto / GPU (NVIDIA, CUDA) / CPU. GPU falls back to CPU if CUDA can't load |
-| Skip silence (VAD) | Faster, fewer hallucinations in silent stretches. Turn off if quiet speech is being dropped |
-| Formats | TXT, SRT, VTT, JSON, Markdown — saved as `<file name>.<ext>` in the output folder |
-| Vocabulary | Names and terms to spell correctly (e.g. `ArthaFlow, RoDTEP, Nashik`) |
+| Language | Auto-detect, or force one. Forcing is more reliable for short or mixed-language audio. Locked for single-language models |
+| Task | `transcribe` keeps the spoken language; `translate` outputs English (multilingual Whisper models only) |
+| Beam size | Higher is slightly more accurate and slower. 5 is a good default |
+| Device | Auto, GPU (NVIDIA, CUDA) or CPU. GPU falls back to CPU if CUDA can't load |
+| Skip silence (VAD) | Faster, and fewer invented words in silent stretches. Parakeet always uses it |
+| Boost quiet audio | Evens out volume with ffmpeg before transcribing. Helps when one speaker is much quieter |
+| Vocabulary | Names and terms to spell correctly, e.g. `ArthaFlow, RoDTEP, Nashik` (Whisper models) |
+| Formats | Saved as `<file name>.<ext>` in the output folder |
 
-Cancel saves whatever has been transcribed so far as `<file name>_partial.<ext>`.
+Cancel saves whatever has been transcribed so far as `<file name>_partial.<ext>`. Theme, model, language, formats and vocabulary are remembered in `~/.local-transcriber.json`.
 
 ## Recording tip
 
-Screen recorders often capture only system audio (the other people on the call), not your own microphone. Enable microphone capture in the recorder before the meeting, or your side of the conversation will be missing.
+Screen recorders often capture only system audio (the other people on a call), not your own microphone. Turn on microphone capture before the meeting, or your side of the conversation will be missing.
