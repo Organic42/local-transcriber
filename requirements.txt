@@ -1,0 +1,6 @@
+faster-whisper
+psutil
+nvidia-ml-py
+# GPU (NVIDIA) only — CUDA runtime libraries for faster-whisper on Windows
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
