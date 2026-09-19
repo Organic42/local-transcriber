@@ -5,6 +5,7 @@ A small desktop tool for transcribing audio and video on your own machine. Nothi
 - **Open-source models:** Whisper large-v3 and turbo, Distil-Whisper, a Hindi fine-tune, NVIDIA Parakeet, or any CTranslate2 Whisper model
 - **Choice of language and device:** GPU or CPU
 - **Output formats:** TXT, SRT, VTT, JSON and Markdown
+- **Extract audio:** save the audio track of a screen recording or video as MP3, M4A, Opus, OGG, FLAC or WAV
 - **Live status:** how much of the media is done, ETA and speed, plus CPU, RAM, GPU and VRAM usage
 - **Themes:** Dark, Light and Terminal
 
@@ -51,7 +52,22 @@ python transcriber.py
 | Vocabulary | Names and terms to spell correctly, e.g. `ArthaFlow, RoDTEP, Nashik` (Whisper models) |
 | Formats | Saved as `<file name>.<ext>` in the output folder |
 
-Cancel saves whatever has been transcribed so far as `<file name>_partial.<ext>`. Theme, model, language, formats and vocabulary are remembered in `~/.local-transcriber.json`.
+Cancel saves whatever has been transcribed so far as `<file name>_partial.<ext>`. Theme, model, language, formats, vocabulary and the audio format and bitrate are remembered in `~/.local-transcriber.json`.
+
+## Extract audio
+
+Converts the **Input** file (for example, a screen recording) to an audio file using ffmpeg. The file is saved as `<file name>.<format>` in the output folder. It uses the same progress bar and Cancel button as transcription. Cancelling deletes the unfinished file.
+
+| Format | Codec | Notes |
+|---|---|---|
+| MP3 | LAME | Plays everywhere |
+| M4A | AAC | Smaller than MP3 at the same quality |
+| Opus | Opus | Smallest for speech; 96k is plenty for voice |
+| OGG | Vorbis | Open format |
+| FLAC | FLAC | Lossless; bitrate doesn't apply |
+| WAV | 16-bit PCM | Uncompressed; bitrate doesn't apply |
+
+Ticking **Boost quiet audio** also levels the extracted audio. If the input is already an audio file of the same format in the same folder, the output is named `<file name>_audio.<format>` so the original is never overwritten.
 
 ## Recording tip
 

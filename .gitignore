@@ -15,6 +15,7 @@ venv/
 *.aac
 *.flac
 *.ogg
+*.opus
 *.srt
 *.vtt
 *.txt

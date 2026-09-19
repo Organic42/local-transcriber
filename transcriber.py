@@ -15,6 +15,7 @@ Run:  python transcriber.py
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -106,6 +107,19 @@ MEDIA_TYPES = [
 ]
 CONFIG_PATH = Path.home() / ".local-transcriber.json"
 
+# Extract audio: format -> (ffmpeg codec args, takes a bitrate)
+AUDIO_FORMATS = {
+    "mp3": (["-c:a", "libmp3lame"], True),
+    "m4a": (["-c:a", "aac"], True),
+    "opus": (["-c:a", "libopus"], True),
+    "ogg": (["-c:a", "libvorbis"], True),
+    "flac": (["-c:a", "flac"], False),
+    "wav": (["-c:a", "pcm_s16le"], False),
+}
+BITRATES = ["96k", "128k", "192k", "256k", "320k"]
+LEVELLER = "dynaudnorm=f=150:g=15:p=0.95:m=30"  # evens out quiet and loud speakers
+NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 
 # ── Themes ───────────────────────────────────────────────────────────────────
 THEMES = {
@@ -168,6 +182,17 @@ def write_outputs(segments, meta, out_dir, stem, formats):
     return written
 
 
+def media_duration(ffmpeg, src):
+    """Length in seconds from ffmpeg's header dump, or 0 if it can't be read."""
+    proc = subprocess.run([ffmpeg, "-hide_banner", "-i", src],
+                          capture_output=True, creationflags=NO_WINDOW)
+    m = re.search(rb"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", proc.stderr)
+    if not m:
+        return 0
+    h, mins, s = m.groups()
+    return int(h) * 3600 + int(mins) * 60 + float(s)
+
+
 def cuda_available():
     try:
         import ctranslate2
@@ -194,9 +219,9 @@ class Cancelled(Exception):
     pass
 
 
-# ── Worker ───────────────────────────────────────────────────────────────────
-class Job(threading.Thread):
-    """Runs one transcription and reports back through a queue."""
+# ── Workers ──────────────────────────────────────────────────────────────────
+class Worker(threading.Thread):
+    """Background task that reports back to the UI through a queue."""
 
     def __init__(self, opts, events):
         super().__init__(daemon=True)
@@ -205,6 +230,10 @@ class Job(threading.Thread):
 
     def emit(self, kind, **data):
         self.events.put((kind, data))
+
+
+class Job(Worker):
+    """Runs one transcription."""
 
     def prepare_audio(self, src, boost, workdir):
         """Decode to 16 kHz mono WAV with ffmpeg, optionally levelling quiet speech."""
@@ -215,10 +244,9 @@ class Job(threading.Thread):
         out = Path(workdir) / "audio.wav"
         cmd = [ffmpeg, "-y", "-loglevel", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000"]
         if boost:
-            cmd += ["-af", "dynaudnorm=f=150:g=15:p=0.95:m=30"]
+            cmd += ["-af", LEVELLER]
         cmd.append(str(out))
-        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, creationflags=flags)
+        proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
         while proc.poll() is None:
             if self.cancelled.is_set():
                 proc.kill()
@@ -252,9 +280,10 @@ class Job(threading.Thread):
             vad_filter=o["vad"], condition_on_previous_text=False,
             hotwords=o["prompt"] or None,
         )
-        self.emit("started", duration=info.duration or 0, device=device,
-                  language=f"{LANG_NAME.get(info.language, info.language)} "
-                           f"({info.language_probability:.0%})")
+        self.emit("started", duration=info.duration or 0,
+                  summary=f"{device.upper()} · language "
+                          f"{LANG_NAME.get(info.language, info.language)} "
+                          f"({info.language_probability:.0%})")
         return device, info.language, info.duration or 0, ((s.start, s.end, s.text) for s in segs)
 
     def run_parakeet(self, audio, model_id, device, duration):
@@ -270,7 +299,7 @@ class Job(threading.Thread):
         vad = onnx_asr.load_vad("silero", providers=providers)
         model = onnx_asr.load_model(model_id, providers=providers)
         self.emit("status", text="Transcribing…")
-        self.emit("started", duration=duration, device=device, language="auto")
+        self.emit("started", duration=duration, summary=f"{device.upper()} · language auto")
         stream = ((s.start, s.end, s.text) for s in model.with_vad(vad).recognize(audio))
         return device, "auto", duration, stream
 
@@ -323,13 +352,65 @@ class Job(threading.Thread):
         self.emit("done", files=[str(p) for p in written], partial=partial, count=len(segments))
 
 
+class Convert(Worker):
+    """Saves the audio track of one file (e.g. a screen recording) with ffmpeg."""
+
+    def run(self):
+        o = self.opts
+        src = Path(o["file"])
+        out = Path(o["out_dir"]) / f"{src.stem}.{o['format']}"
+        if out.resolve() == src.resolve():  # never overwrite the input
+            out = out.with_name(f"{src.stem}_audio.{o['format']}")
+        try:
+            ffmpeg = shutil.which("ffmpeg")
+            if not ffmpeg:
+                raise RuntimeError("ffmpeg was not found on PATH. Install it to extract audio.")
+            codec, uses_bitrate = AUDIO_FORMATS[o["format"]]
+            cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostats",
+                   "-progress", "pipe:1", "-i", str(src), "-vn", *codec]
+            if uses_bitrate:
+                cmd += ["-b:a", o["bitrate"]]
+            if o["boost"]:
+                cmd += ["-af", LEVELLER]
+            cmd.append(str(out))
+            out.parent.mkdir(parents=True, exist_ok=True)
+
+            self.emit("status", text=f"Extracting audio to {o['format'].upper()}…")
+            self.emit("started", duration=media_duration(ffmpeg, str(src)), summary=f"→ {out.name}")
+            # stderr goes to a file so a chatty ffmpeg can't fill the pipe and stall
+            with tempfile.TemporaryFile() as err:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err,
+                                        creationflags=NO_WINDOW)
+                for line in proc.stdout:  # "key=value" progress lines, about twice a second
+                    if self.cancelled.is_set():
+                        proc.kill()
+                        break
+                    key, _, value = line.decode(errors="ignore").strip().partition("=")
+                    if key == "out_time_us" and value.isdigit():
+                        self.emit("progress", position=int(value) / 1e6)
+                proc.wait()
+                if self.cancelled.is_set():
+                    out.unlink(missing_ok=True)
+                    self.emit("done", files=[], partial=True)
+                    return
+                if proc.returncode != 0:
+                    out.unlink(missing_ok=True)
+                    err.seek(0)
+                    raise RuntimeError("ffmpeg could not extract the audio:\n"
+                                       + err.read().decode(errors="ignore").strip())
+        except Exception as e:
+            self.emit("error", text=f"{type(e).__name__}: {e}")
+            return
+        self.emit("done", files=[str(out)], partial=False)
+
+
 # ── UI ───────────────────────────────────────────────────────────────────────
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Local Transcriber")
-        self.geometry("840x860")
-        self.minsize(760, 780)
+        self.geometry("840x910")
+        self.minsize(760, 830)
 
         self.config_data = load_config()
         self.events = queue.Queue()
@@ -349,6 +430,7 @@ class App(tk.Tk):
         self._build()
         self._apply_theme()
         self._on_model_change()
+        self._on_audio_format_change()
         self.protocol("WM_DELETE_WINDOW", self._close)
         self.after(150, self._drain_events)
         self.after(1000, self._sample_resources)
@@ -462,6 +544,26 @@ class App(tk.Tk):
                   style="Muted.TLabel").grid(row=4, column=1, sticky="w")
         run.columnconfigure(1, weight=1)
 
+        conv = ttk.LabelFrame(root, text="Extract audio")
+        conv.pack(fill="x", **pad)
+        ttk.Label(conv, text="Format", width=13).grid(row=0, column=0, sticky="w", padx=6, pady=3)
+        saved_afmt = cfg.get("audio_format")
+        self.afmt_var = tk.StringVar(value=saved_afmt if saved_afmt in AUDIO_FORMATS else "mp3")
+        cb = self._combo(conv, self.afmt_var, list(AUDIO_FORMATS), 7)
+        cb.grid(row=0, column=1, sticky="w")
+        cb.bind("<<ComboboxSelected>>", lambda _: self._on_audio_format_change())
+        ttk.Label(conv, text="Bitrate").grid(row=0, column=2, sticky="w", padx=(18, 6))
+        saved_rate = cfg.get("bitrate")
+        self.bitrate_var = tk.StringVar(value=saved_rate if saved_rate in BITRATES else "192k")
+        self.bitrate_combo = self._combo(conv, self.bitrate_var, BITRATES, 6)
+        self.bitrate_combo.grid(row=0, column=3, sticky="w")
+        self.bitrate_combo.bind("<<ComboboxSelected>>", lambda _: self._save_prefs())
+        ttk.Label(conv, text="Audio track only · Boost quiet audio applies",
+                  style="Muted.TLabel").grid(row=0, column=4, sticky="w", padx=(18, 6))
+        self.convert_btn = ttk.Button(conv, text="Convert", command=self._convert)
+        self.convert_btn.grid(row=0, column=5, sticky="e", padx=6, pady=3)
+        conv.columnconfigure(4, weight=1)
+
         actions = ttk.Frame(root)
         actions.pack(fill="x", **pad)
         self.start_btn = ttk.Button(actions, text="Start", command=self._start, style="Accent.TButton")
@@ -562,6 +664,11 @@ class App(tk.Tk):
         self.model_note.set(spec.note)
         self._save_prefs()
 
+    def _on_audio_format_change(self):
+        lossy = AUDIO_FORMATS[self.afmt_var.get()][1]
+        self.bitrate_combo.state(["!disabled", "readonly"] if lossy else ["disabled"])
+        self._save_prefs()
+
     # actions
     def _pick_file(self):
         path = filedialog.askopenfilename(filetypes=MEDIA_TYPES)
@@ -604,29 +711,45 @@ class App(tk.Tk):
             "device": self.device_var.get(), "vad": self.vad_var.get(), "boost": self.boost_var.get(),
             "beam": beam, "prompt": self.prompt_var.get().strip(),
         }
+        self._launch(Job(opts, self.events))
+
+    def _convert(self):
+        file = self.file_var.get().strip()
+        if not file or not Path(file).is_file():
+            return messagebox.showwarning("Transcriber", "Choose an audio or video file first.")
+        out_dir = self.out_var.get().strip() or str(Path(file).parent)
+        self.out_var.set(out_dir)
+        opts = {"file": file, "out_dir": out_dir, "format": self.afmt_var.get(),
+                "bitrate": self.bitrate_var.get(), "boost": self.boost_var.get()}
+        self._launch(Convert(opts, self.events))
+
+    def _launch(self, job):
         self._save_prefs()
         self._clear_log()
         self.bar["value"] = 0
         self.duration, self.started_at = 0, time.time()
         self.start_btn.state(["disabled"])
+        self.convert_btn.state(["disabled"])
         self.cancel_btn.state(["!disabled"])
-        self.job = Job(opts, self.events)
+        self.job = job
         self.job.start()
 
     def _cancel(self):
         if self.job:
             self.job.cancelled.set()
-            self.prog_var.set("Cancelling — saving what has been transcribed so far…")
+            self.prog_var.set("Cancelling — saving what has been transcribed so far…"
+                              if isinstance(self.job, Job) else "Cancelling…")
             self.cancel_btn.state(["disabled"])
 
     def _save_prefs(self):
-        if not hasattr(self, "prompt_var"):
+        if not hasattr(self, "afmt_var"):  # still building the window
             return
         save_config({
             "theme": self.theme_var.get(), "model": self.model_var.get(),
             "language": self.lang_var.get(), "custom_model": self.custom_var.get(),
             "formats": [f for f, v in self.fmt_vars.items() if v.get()],
             "vocabulary": self.prompt_var.get(),
+            "audio_format": self.afmt_var.get(), "bitrate": self.bitrate_var.get(),
         })
 
     def _close(self):
@@ -651,14 +774,16 @@ class App(tk.Tk):
     def _on_log(self, text):
         self._append(text)
 
-    def _on_started(self, duration, device, language):
+    def _on_started(self, duration, summary):
         self.duration = duration
         self.started_at = time.time()
-        self._append(f"— {short(duration)} of media · {device.upper()} · language {language} —")
-        self.prog_var.set(f"00:00 / {short(duration)} (0%)")
+        self._append(f"— {short(duration)} of media · {summary} —")
+        if duration:
+            self.prog_var.set(f"00:00 / {short(duration)} (0%)")
 
-    def _on_progress(self, position, text):
-        self._append(text)
+    def _on_progress(self, position, text=None):
+        if text:
+            self._append(text)
         if not self.duration:
             return
         frac = min(position / self.duration, 1.0)
@@ -671,7 +796,7 @@ class App(tk.Tk):
             f" · ETA {short(eta)} · {speed:.1f}× realtime"
         )
 
-    def _on_done(self, files, partial, count):
+    def _on_done(self, files, partial, count=None):
         if not partial:
             self.bar["value"] = 1000
         elapsed = short(time.time() - (self.started_at or time.time()))
@@ -679,7 +804,8 @@ class App(tk.Tk):
             state = "Cancelled — partial transcript saved" if files else "Cancelled"
         else:
             state = "Done"
-        self.prog_var.set(f"{state} · {count} segments · {elapsed}")
+        segments = f" · {count} segments" if count is not None else ""
+        self.prog_var.set(f"{state}{segments} · {elapsed}")
         if files:
             self._append("Saved:\n  " + "\n  ".join(files))
         self._reset_buttons()
@@ -693,6 +819,7 @@ class App(tk.Tk):
     def _reset_buttons(self):
         self.job = None
         self.start_btn.state(["!disabled"])
+        self.convert_btn.state(["!disabled"])
         self.cancel_btn.state(["disabled"])
 
     # resources
