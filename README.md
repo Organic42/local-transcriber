@@ -9,8 +9,15 @@ A Windows desktop application for transcribing audio and video entirely on your 
 - **Export formats:** TXT, SRT, VTT, JSON and Markdown, any combination in one pass
 - **Audio extraction:** save the audio track of a screen recording or video as MP3, M4A, Opus, OGG, FLAC or WAV
 - **Live job monitoring:** a transcript map showing which parts of the recording contain speech, plus ETA, processing speed, and a System Monitor panel for CPU/RAM/GPU/VRAM usage
-- **Job history:** every transcription and extraction is logged, with a double-click to reopen its output folder
+- **Searchable history:** every job is logged with its full transcript in a local SQLite database, so you can find which recording mentioned a term months later
+- **Model manager and offline mode:** see which models are on disk, download or delete them, or block network access entirely
 - **Interface:** a retro desktop UI — sidebar navigation, numbered workflow sections and a decorative panel — with eight selectable colour schemes, including Light, Dark and Terminal variants
+
+## Performance
+
+The app keeps the loaded model in memory between runs, so only the first job of a session pays the load cost. On a GPU it can also transcribe several chunks at once, which is roughly **3× faster** on large-v3 — measured at 10.8 s versus 3.1 s for 11 minutes of speech on an RTX 5080. Batching produces longer segments, so it turns itself off automatically when you export SRT or VTT, where precise timings matter. Both behaviours are adjustable under Settings.
+
+On a machine without a GPU, the app defaults to Whisper small rather than large-v3 on first run.
 
 ## Requirements
 
@@ -53,6 +60,7 @@ or double-click `run.bat` on Windows.
 | Device | Auto, GPU (CUDA) or CPU. GPU falls back to CPU automatically if CUDA is unavailable |
 | Skip silence (VAD) | Speeds up processing and reduces invented text in silent stretches. Always enabled for Parakeet |
 | Boost quiet audio | Normalizes volume via ffmpeg before transcribing; helps when one speaker is much quieter than others |
+| Mixed languages | Detects the language per segment instead of once for the file — for calls that switch between, say, Hindi and English. Multilingual Whisper models on Auto-detect only |
 | Vocabulary | Comma-separated names and terms to spell correctly, e.g. `ArthaFlow, RoDTEP, Nashik` (Whisper models) |
 | Formats | Output is written as `<file name>.<extension>` in the chosen output folder |
 
@@ -77,7 +85,8 @@ The application uses a retro desktop interface built entirely with Tk's standard
 
 - **Sidebar:** Transcribe, Extract Audio, History, Settings and About. Transcribe and Extract Audio open the same workspace; History and Settings are their own pages.
 - **Transcribe workspace:** five numbered sections — Select File (with a details strip showing type, length and size), Model & Language, Options, Audio Extraction and Output Folder — followed by the action buttons, the transcript map and a live transcript alongside the System Monitor panel.
-- **History:** a log of every completed job (time, action, file and result). Double-click a row to open its output folder, or clear the list from the same page.
+- **Models:** every model with its size on disk, plus Download and Delete. **Offline mode** sets the Hugging Face libraries to local-only, so a missing model fails instead of quietly downloading gigabytes.
+- **History:** every completed job, with its transcript stored and indexed for full-text search. Type a word to find the recordings that mention it; double-click a row to read the transcript with matches highlighted, or use Open output folder.
 - **Settings:** pick a colour scheme, toggle completion sounds, and set a default output folder used whenever the Output Folder field is left empty.
 - **View → Color scheme:** the same eight schemes as the Settings page — four classic Windows looks (Windows Standard, High Contrast Black, Eggplant, Brick), Light, Dark, Terminal, and the default Neon Dusk. Terminal renders in green phosphor with a monospace bitmap font throughout. The transcript map and System Monitor recolor to match; the sidebar and header stay fixed.
 - **View → Sounds:** plays a completion chime when a job finishes; can be disabled here or from Settings.

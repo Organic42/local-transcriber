@@ -12,11 +12,13 @@ costs in CPU, RAM and GPU.
 Run:  python transcriber.py
 """
 
+import gc
 import json
 import os
 import queue
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -71,17 +73,20 @@ class ModelSpec:
     language: str | None = None   # forced language for single-language models
     translate: bool = True        # supports "translate to English"
     note: str = ""
+    repo: str = ""                # Hugging Face repo, when it differs from model_id
 
 
 MODELS = [
     ModelSpec("Whisper large-v3 — best accuracy, 99 languages", "whisper", "large-v3"),
-    ModelSpec("Whisper large-v3-turbo — much faster, near large-v3", "whisper", "large-v3-turbo"),
+    ModelSpec("Whisper large-v3-turbo — much faster, near large-v3", "whisper", "large-v3-turbo",
+              repo="mobiuslabsgmbh/faster-whisper-large-v3-turbo"),
     ModelSpec("Distil-Whisper large-v3.5 — English only, fast", "whisper",
               "distil-whisper/distil-large-v3.5-ct2", language="en", translate=False),
     ModelSpec("Whisper large-v2 Hindi (Collabora) — Hindi fine-tune", "whisper",
               "collabora/faster-whisper-large-v2-hindi", language="hi", translate=False),
     ModelSpec("NVIDIA Parakeet TDT 0.6B v3 — English + 24 European, very fast", "parakeet",
               "nemo-parakeet-tdt-0.6b-v3", translate=False,
+              repo="istupakov/parakeet-tdt-0.6b-v3-onnx",
               note="Detects language itself · always splits on silence · no Indian languages"),
     ModelSpec("Whisper medium — lighter", "whisper", "medium"),
     ModelSpec("Whisper small — good on CPU", "whisper", "small"),
@@ -427,12 +432,102 @@ def media_duration(ffmpeg, src, timeout=20):
     return int(h) * 3600 + int(mins) * 60 + float(s)
 
 
+_CUDA = None
+
+
 def cuda_available():
-    try:
-        import ctranslate2
-        return ctranslate2.get_cuda_device_count() > 0
-    except Exception:
-        return False
+    global _CUDA  # importing ctranslate2 is slow; the answer can't change while we run
+    if _CUDA is None:
+        try:
+            import ctranslate2
+            _CUDA = ctranslate2.get_cuda_device_count() > 0
+        except Exception:
+            _CUDA = False
+    return _CUDA
+
+
+def default_model_label():
+    """large-v3 is the most accurate, but painfully slow without a GPU."""
+    return ("Whisper large-v3-turbo — much faster, near large-v3" if cuda_available()
+            else "Whisper small — good on CPU")
+
+
+class ModelCache:
+    """Holds the last engine loaded. Loading large-v3 costs seconds and gigabytes, so a
+    second run — or the next file in a queue — shouldn't pay for it twice."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.key = None
+        self.value = None
+
+    def holds(self, key):
+        return self.key == key
+
+    def get(self, key, build):
+        with self.lock:
+            if self.key != key:
+                self.key = self.value = None  # free the old engine before building a new one
+                gc.collect()
+                self.value = build()
+                self.key = key
+            return self.value
+
+    def clear(self):
+        with self.lock:
+            had, self.key, self.value = self.key, None, None
+        gc.collect()
+        return had
+
+
+MODEL_CACHE = ModelCache()
+
+HF_CACHE = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
+
+
+def model_repo(spec):
+    """The Hugging Face repo a model comes from, so we can see if it's already downloaded."""
+    if spec.model_id is None:
+        return None
+    if spec.repo:
+        return spec.repo
+    if "/" in spec.model_id:
+        return spec.model_id
+    return f"Systran/faster-whisper-{spec.model_id}"  # plain sizes: tiny, small, large-v3…
+
+
+def dir_size(path):
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += (Path(root) / name).stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def model_cache_dir(repo):
+    return HF_CACHE / ("models--" + repo.replace("/", "--")) if repo else None
+
+
+def model_on_disk(spec):
+    """(downloaded, bytes) for one model, read straight from the Hugging Face cache."""
+    folder = model_cache_dir(model_repo(spec))
+    if not folder or not folder.is_dir():
+        return False, 0
+    size = dir_size(folder)
+    return size > 0, size
+
+
+def set_offline(on):
+    """Hard-stop any network use by the model libraries."""
+    for var in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"):
+        if on:
+            os.environ[var] = "1"
+        else:
+            os.environ.pop(var, None)
+
 
 
 def play_sound(name):
@@ -477,8 +572,8 @@ def save_config(data):
         pass
 
 
-HISTORY_PATH = Path.home() / ".local-transcriber-history.json"
-HISTORY_LIMIT = 50
+HISTORY_PATH = Path.home() / ".local-transcriber-history.json"  # pre-SQLite, imported once
+DB_PATH = Path.home() / ".local-transcriber.db"
 
 
 def load_history():
@@ -489,9 +584,84 @@ def load_history():
         return []
 
 
-def save_history(entries):
+def db_connect():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def db_init():
+    """Jobs plus a full-text index of their transcripts, so old calls stay searchable."""
     try:
-        HISTORY_PATH.write_text(json.dumps(entries[:HISTORY_LIMIT], indent=2), encoding="utf-8")
+        with db_connect() as conn:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    time TEXT, action TEXT, file TEXT, source TEXT, outputs TEXT,
+                    status TEXT, model TEXT, device TEXT, language TEXT,
+                    duration REAL, segments INTEGER);
+                CREATE VIRTUAL TABLE IF NOT EXISTS transcripts
+                    USING fts5(text, job_id UNINDEXED);
+            """)
+            empty = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
+        if empty:  # carry the old JSON list over, newest last so ids read chronologically
+            for entry in reversed(load_history()):
+                db_record({"time": entry.get("time", ""), "action": entry.get("action", ""),
+                           "file": entry.get("file", ""), "source": "",
+                           "outputs": entry.get("outputs", []), "status": entry.get("status", "")}, "")
+    except Exception:
+        pass
+
+
+def db_record(job, transcript=""):
+    """Store one finished job, and its text if there is any."""
+    try:
+        with db_connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO jobs (time, action, file, source, outputs, status, model, device,"
+                " language, duration, segments) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (job.get("time", ""), job.get("action", ""), job.get("file", ""),
+                 job.get("source", ""), json.dumps(job.get("outputs", [])), job.get("status", ""),
+                 job.get("model", ""), job.get("device", ""), job.get("language", ""),
+                 job.get("duration", 0) or 0, job.get("segments", 0) or 0))
+            if transcript.strip():
+                conn.execute("INSERT INTO transcripts (text, job_id) VALUES (?, ?)",
+                             (transcript, cur.lastrowid))
+    except Exception:
+        pass
+
+
+def db_jobs(query="", limit=500):
+    """Recent jobs, or the ones whose transcript matches a full-text query."""
+    try:
+        with db_connect() as conn:
+            if query.strip():
+                rows = conn.execute(
+                    "SELECT j.*, snippet(transcripts, 0, '[', ']', '…', 12) AS hit"
+                    " FROM transcripts t JOIN jobs j ON j.id = t.job_id"
+                    " WHERE transcripts MATCH ? ORDER BY j.id DESC LIMIT ?",
+                    (query, limit)).fetchall()
+            else:
+                rows = conn.execute("SELECT *, '' AS hit FROM jobs ORDER BY id DESC LIMIT ?",
+                                    (limit,)).fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def db_transcript(job_id):
+    try:
+        with db_connect() as conn:
+            row = conn.execute("SELECT text FROM transcripts WHERE job_id = ?", (job_id,)).fetchone()
+            return row["text"] if row else ""
+    except Exception:
+        return ""
+
+
+def db_clear():
+    try:
+        with db_connect() as conn:
+            conn.executescript("DELETE FROM jobs; DELETE FROM transcripts;")
     except Exception:
         pass
 
@@ -548,27 +718,54 @@ class Job(Worker):
             duration = w.getnframes() / w.getframerate()
         return str(out), duration
 
-    def run_whisper(self, audio, model_id, device, language):
+    def load_whisper(self, model_id, device):
         from faster_whisper import WhisperModel
 
-        o = self.opts
         compute = "float16" if device == "cuda" else "int8"
-        self.emit("status", text=f"Loading {model_id} on {device.upper()} (first use downloads it)…")
+        key = ("whisper", model_id, device, compute)
+        if MODEL_CACHE.holds(key):
+            self.emit("status", text=f"Reusing {model_id} already loaded on {device.upper()}…")
+        else:
+            self.emit("status", text=f"Loading {model_id} on {device.upper()} (first use downloads it)…")
+        return MODEL_CACHE.get(key, lambda: WhisperModel(model_id, device=device, compute_type=compute))
+
+    def run_whisper(self, audio, model_id, device, language):
+        o = self.opts
         try:
-            model = WhisperModel(model_id, device=device, compute_type=compute)
+            model = self.load_whisper(model_id, device)
         except Exception as e:
             if device != "cuda":
                 raise
             self.emit("log", text=f"GPU unavailable ({e}); falling back to CPU.")
             device = "cpu"
-            model = WhisperModel(model_id, device=device, compute_type="int8")
+            model = self.load_whisper(model_id, "cpu")
 
-        self.emit("status", text="Transcribing…")
-        segs, info = model.transcribe(
-            audio, language=language, task=o["task"], beam_size=o["beam"],
-            vad_filter=o["vad"], condition_on_previous_text=False,
-            hotwords=o["prompt"] or None,
-        )
+        settings = dict(language=language, task=o["task"], beam_size=o["beam"],
+                        vad_filter=o["vad"], condition_on_previous_text=False,
+                        hotwords=o["prompt"] or None)
+        if o.get("mixed") and not language:
+            settings["multilingual"] = True  # detect the language per segment, not once
+        # Batching is a big GPU win (~3.5x on large-v3) but returns far longer segments —
+        # fine for TXT/MD/JSON, poor as subtitles. It also needs VAD, since it splits on silence.
+        want = o.get("batch", 1)
+        subtitles = any(f in ("srt", "vtt") for f in o.get("formats", ()))
+        batch = want if device == "cuda" and o["vad"] and not subtitles else 1
+        if want > 1 and batch == 1 and device == "cuda" and o["vad"] and subtitles:
+            self.emit("log", text="SRT/VTT asked for, so keeping fine segment timings "
+                                  "(batching off for this run).")
+        segs = info = None
+        if batch > 1:
+            try:
+                from faster_whisper import BatchedInferencePipeline
+                self.emit("status", text=f"Transcribing ({batch} chunks at a time)…")
+                segs, info = BatchedInferencePipeline(model=model).transcribe(
+                    audio, batch_size=batch, **settings)
+            except Exception as e:
+                self.emit("log", text=f"Batched mode unavailable ({e}); using the plain path.")
+                segs = info = None
+        if info is None:
+            self.emit("status", text="Transcribing…")
+            segs, info = model.transcribe(audio, **settings)
         self.emit("started", duration=info.duration or 0,
                   summary=f"{device.upper()} · language "
                           f"{LANG_NAME.get(info.language, info.language)} "
@@ -584,9 +781,13 @@ class Job(Worker):
             device = "cpu"
         providers = (["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda"
                      else ["CPUExecutionProvider"])
-        self.emit("status", text=f"Loading Parakeet on {device.upper()} (first use downloads it)…")
-        vad = onnx_asr.load_vad("silero", providers=providers)
-        model = onnx_asr.load_model(model_id, providers=providers)
+        key = ("parakeet", model_id, device)
+        if MODEL_CACHE.holds(key):
+            self.emit("status", text=f"Reusing Parakeet already loaded on {device.upper()}…")
+        else:
+            self.emit("status", text=f"Loading Parakeet on {device.upper()} (first use downloads it)…")
+        vad, model = MODEL_CACHE.get(key, lambda: (onnx_asr.load_vad("silero", providers=providers),
+                                                   onnx_asr.load_model(model_id, providers=providers)))
         self.emit("status", text="Transcribing…")
         self.emit("started", duration=duration, summary=f"{device.upper()} · language auto")
         stream = ((s.start, s.end, s.text) for s in model.with_vad(vad).recognize(audio))
@@ -631,6 +832,7 @@ class Job(Worker):
         return [str(p) for p in written]
 
     def run(self):
+        set_offline(self.opts.get("offline", False))
         device = self.opts["device"]
         if device == "auto":
             device = "cuda" if cuda_available() else "cpu"
@@ -660,7 +862,10 @@ class Job(Worker):
             self.emit("done", files=[], partial=True, count=0)
             return
         self.emit("done", files=self._save(lang, duration, device, partial),
-                  partial=partial, count=len(self.segments))
+                  partial=partial, count=len(self.segments),
+                  text="\n".join(s["text"] for s in self.segments),
+                  info={"model": self.opts["model_id"], "device": device,
+                        "language": lang or "", "duration": duration})
 
 
 class Convert(Worker):
@@ -715,14 +920,45 @@ class Convert(Worker):
         self.emit("done", files=[str(out)], partial=False)
 
 
+class Download(Worker):
+    """Fetches one model into the Hugging Face cache, reporting how much has landed."""
+
+    def run(self):
+        repo = self.opts["repo"]
+        folder = model_cache_dir(repo)
+        self.emit("status", text=f"Downloading {repo}…")
+        self.emit("dl_started", repo=repo)
+        watching = threading.Event()
+
+        def watch():  # no progress hook we can rely on, so watch the cache grow
+            while not watching.is_set():
+                if folder and folder.is_dir():
+                    self.emit("dl_progress", repo=repo, bytes=dir_size(folder))
+                watching.wait(1.0)
+
+        ticker = threading.Thread(target=watch, daemon=True)
+        ticker.start()
+        try:
+            from huggingface_hub import snapshot_download
+            set_offline(False)
+            snapshot_download(repo_id=repo)
+        except Exception as e:
+            watching.set()
+            self.emit("dl_done", repo=repo, ok=False, text=f"{type(e).__name__}: {e}")
+            return
+        finally:
+            watching.set()
+        self.emit("dl_done", repo=repo, ok=True, text="")
+
+
 # ── UI ───────────────────────────────────────────────────────────────────────
 LABEL_W = 10                                          # width of inline field labels
 MAP_ROWS, MAP_TILE, MAP_GAP, MAP_MARGIN = 3, 11, 2, 4  # transcript map geometry, in pixels
 MAP_HEIGHT = 2 * MAP_MARGIN + MAP_ROWS * (MAP_TILE + MAP_GAP) - MAP_GAP
 SIDEBAR_W = 152
 NAV_ITEMS = [("transcribe", "Transcribe", "home"), ("extract", "Extract Audio", "wave"),
-             ("history", "History", "clock"), ("settings", "Settings", "gear"),
-             ("about", "About", "question")]
+             ("models", "Models", "chip"), ("history", "History", "clock"),
+             ("settings", "Settings", "gear"), ("about", "About", "question")]
 VIDEO_EXT = {".mp4", ".mkv", ".mov", ".webm", ".avi"}
 
 
@@ -793,14 +1029,16 @@ class App(tk.Tk):
         # transcript map: how far the job has read, and where it found speech
         self.map_mode, self.map_active, self.map_reached, self.map_speech = "transcribe", False, 0, []
         self.map_tiles, self.map_drawn, self.map_x0 = [], [], 0
-        self.blink_on, self.blink_after = True, None
+        self.blink_on, self.blink_after, self.paint_after = True, None, None
+        self.prefs_after = None
         self.animate = animations_enabled()
 
-        self.history = load_history()
+        db_init()  # creates the store and imports any pre-SQLite JSON history
         self.history_rows = {}
         self.active_nav = "transcribe"
         self.status_state = "idle"
         self.probed_path = None
+        self.dl_job = None
         self._titlebar_done = False
         self._closing = False
 
@@ -811,9 +1049,14 @@ class App(tk.Tk):
         self.scheme_var = tk.StringVar(value=saved_scheme if saved_scheme in SCHEMES else DEFAULT_SCHEME)
         self.sound_var = tk.BooleanVar(value=cfg.get("sounds", True))
         self.default_out_var = tk.StringVar(value=cfg.get("default_out", ""))
+        self.batch_var = tk.IntVar(value=cfg.get("batch", 8))
+        self.offline_var = tk.BooleanVar(value=cfg.get("offline", False))
+        self.mixed_var = tk.BooleanVar(value=cfg.get("mixed", False))
+        self.keep_model_var = tk.BooleanVar(value=cfg.get("keep_model", True))
         self.app_icons = [sprite(self, SPRITES["cassette"], zoom, pad=0) for zoom in (1, 2, 4)]
         self.iconphoto(True, *self.app_icons[:2])
 
+        set_offline(self.offline_var.get())
         self._build_menu()
         self._build()
         self._apply_scheme()
@@ -885,6 +1128,7 @@ class App(tk.Tk):
         tools.add_command(label="View history", underline=5, command=lambda: self._nav_click("history"))
         tools.add_separator()
         tools.add_command(label="Clear live transcript", underline=0, command=self._clear_log)
+        tools.add_command(label="Unload model from memory", underline=0, command=self._unload_model)
         bar.add_cascade(label="Tools", underline=0, menu=tools)
 
         helpm = tk.Menu(bar, tearoff=False)
@@ -910,6 +1154,7 @@ class App(tk.Tk):
         page = self._build_page_transcribe(content)
         page.grid(row=0, column=0, sticky="nsew")
         self.pages = {"transcribe": page, "extract": page,
+                      "models": self._build_page_models(content),
                       "history": self._build_page_history(content),
                       "settings": self._build_page_settings(content)}
         for key, pg in self.pages.items():
@@ -1068,7 +1313,8 @@ class App(tk.Tk):
         cfg = self.config_data
         ttk.Label(model_lf, text="Model:", width=LABEL_W).grid(row=0, column=0, **cell)
         saved_model = cfg.get("model")
-        self.model_var = tk.StringVar(value=saved_model if saved_model in MODEL_BY_LABEL else MODELS[0].label)
+        self.model_var = tk.StringVar(
+            value=saved_model if saved_model in MODEL_BY_LABEL else default_model_label())
         cb = self._combo(model_lf, self.model_var, [m.label for m in MODELS], 30)
         cb.grid(row=0, column=1, columnspan=3, sticky="ew")
         cb.bind("<<ComboboxSelected>>", lambda _: self._on_model_change())
@@ -1084,6 +1330,7 @@ class App(tk.Tk):
         self.lang_var = tk.StringVar(value=saved_lang if saved_lang in dict(LANGUAGES) else "Auto-detect")
         self.lang_combo = self._combo(model_lf, self.lang_var, [l for l, _ in LANGUAGES], 10)
         self.lang_combo.grid(row=2, column=1, sticky="w")
+        self.lang_combo.bind("<<ComboboxSelected>>", lambda _: self._on_model_change())
 
         ttk.Label(model_lf, text="Task:").grid(row=3, column=0, sticky="w", pady=2)
         self.task_var = tk.StringVar(value="transcribe")
@@ -1094,10 +1341,14 @@ class App(tk.Tk):
         self.beam_spin = ttk.Spinbox(model_lf, from_=1, to=10, width=3, textvariable=self.beam_var)
         self.beam_spin.grid(row=3, column=3, sticky="w")
 
+        self.mixed_check = ttk.Checkbutton(
+            model_lf, text="Mixed languages (detect per segment)", variable=self.mixed_var,
+            command=self._save_prefs)
+        self.mixed_check.grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.model_note = tk.StringVar()
         self.model_note_label = ttk.Label(model_lf, textvariable=self.model_note, style="Hint.TLabel",
                                           wraplength=320, justify="left")
-        self.model_note_label.grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self.model_note_label.grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
 
         # 3. Options
         opts_lf = self._labelframe(top, "wrench", "3. Options", row=1, column=0,
@@ -1278,25 +1529,44 @@ class App(tk.Tk):
         head = ttk.Frame(page)
         head.pack(fill="x", pady=(0, 6))
         self._section_header_standalone(head, "clock", "History").pack(side="left")
-        ttk.Label(head, text="   Recent transcription and extraction jobs.",
+        ttk.Label(head, text="   Every finished job, and the words inside it.",
                  style="Hint.TLabel").pack(side="left")
         ttk.Button(head, text="Clear history", command=self._clear_history).pack(side="right")
 
+        search = ttk.Frame(page)
+        search.pack(fill="x", pady=(0, 6))
+        ttk.Label(search, text="Search transcripts:", width=18).pack(side="left")
+        self.search_var = tk.StringVar()
+        entry = ttk.Entry(search, textvariable=self.search_var)
+        entry.pack(side="left", fill="x", expand=True)
+        entry.bind("<Return>", lambda _: self._refresh_history())
+        ttk.Button(search, text="Search", command=self._refresh_history).pack(side="left", padx=(6, 0))
+        ttk.Button(search, text="Show all", command=lambda: (self.search_var.set(""),
+                                                             self._refresh_history())).pack(
+            side="left", padx=(6, 0))
+
         wrap = self._sunken(page, depth=2, body="field")
         wrap.pack(fill="both", expand=True)
-        cols = ("time", "action", "file", "status")
-        self.history_tree = ttk.Treeview(wrap.body, columns=cols, show="headings", height=18)
-        for col, label, w in (("time", "Time", 130), ("action", "Action", 140),
-                              ("file", "File", 340), ("status", "Status", 220)):
+        cols = ("time", "action", "file", "status", "hit")
+        self.history_tree = ttk.Treeview(wrap.body, columns=cols, show="headings", height=16)
+        for col, label, w in (("time", "Time", 120), ("action", "Action", 120),
+                              ("file", "File", 240), ("status", "Status", 170),
+                              ("hit", "Match", 320)):
             self.history_tree.heading(col, text=label)
             self.history_tree.column(col, width=w, anchor="w")
         scroll = ttk.Scrollbar(wrap.body, command=self.history_tree.yview)
         self.history_tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.history_tree.pack(fill="both", expand=True)
-        self.history_tree.bind("<Double-1>", self._history_open)
-        ttk.Label(page, text="Double-click a row to open its output folder.",
-                 style="Hint.TLabel").pack(anchor="w", pady=(4, 0))
+        self.history_tree.bind("<Double-1>", lambda _: self._view_transcript())
+
+        foot = ttk.Frame(page)
+        foot.pack(fill="x", pady=(4, 0))
+        ttk.Label(foot, text="Double-click a row to read its transcript.",
+                 style="Hint.TLabel").pack(side="left")
+        ttk.Button(foot, text="Open output folder", command=self._history_open).pack(side="right")
+        ttk.Button(foot, text="View transcript", command=self._view_transcript).pack(
+            side="right", padx=(0, 6))
         self._refresh_history()
         return page
 
@@ -1307,39 +1577,213 @@ class App(tk.Tk):
     def _refresh_history(self):
         if not hasattr(self, "history_tree"):
             return
+        query = self.search_var.get().strip()
         self.history_tree.delete(*self.history_tree.get_children())
         self.history_rows = {}
-        for entry in self.history:
+        rows = db_jobs(query)
+        for row in rows:
             iid = self.history_tree.insert("", "end", values=(
-                entry.get("time", ""), entry.get("action", ""),
-                entry.get("file", ""), entry.get("status", "")))
-            self.history_rows[iid] = entry
+                row["time"], row["action"], row["file"], row["status"],
+                " ".join((row["hit"] or "").split())))
+            self.history_rows[iid] = row
+        if query and not rows:
+            self.history_tree.insert("", "end", values=("", "", f"No transcript contains “{query}”.",
+                                                        "", ""))
 
-    def _history_open(self, _event):
+    def _selected_job(self):
         sel = self.history_tree.selection()
-        if not sel:
-            return
-        entry = self.history_rows.get(sel[0])
-        outputs = entry.get("outputs") if entry else None
+        return self.history_rows.get(sel[0]) if sel else None
+
+    def _history_open(self, _event=None):
+        row = self._selected_job()
+        outputs = json.loads(row["outputs"] or "[]") if row else []
         if not outputs:
             return
         folder = str(Path(outputs[0]).parent)
         if Path(folder).is_dir():
             os.startfile(folder) if sys.platform == "win32" else subprocess.Popen(["xdg-open", folder])
 
+    def _view_transcript(self):
+        row = self._selected_job()
+        if not row:
+            return
+        text = db_transcript(row["id"])
+        if not text:
+            return messagebox.showinfo("Transcriber", "No transcript was stored for this job.")
+        win = tk.Toplevel(self, background=self.t["face"])
+        win.title(f"{row['file']} — {row['time']}")
+        win.transient(self)
+        win.geometry("760x560")
+        body = ttk.Frame(win, padding=8)
+        body.pack(fill="both", expand=True)
+        detail = " · ".join(p for p in (row["model"], row["device"], row["language"],
+                                        f"{row['segments']} segments") if p)
+        ttk.Label(body, text=detail, style="Hint.TLabel").pack(anchor="w", pady=(0, 6))
+        well = self._sunken(body, depth=2, body="field")
+        well.pack(fill="both", expand=True)
+        scroll = ttk.Scrollbar(well.body)
+        scroll.pack(side="right", fill="y")
+        view = tk.Text(well.body, wrap="word", relief="flat", bd=0, highlightthickness=0,
+                       padx=6, pady=4, yscrollcommand=scroll.set, font=LOG_FONT,
+                       background=self.t["field"], foreground=self.t["field_text"],
+                       insertbackground=self.t["field_text"])
+        scroll.configure(command=view.yview)
+        view.pack(fill="both", expand=True)
+        view.insert("1.0", text)
+        term = self.search_var.get().strip()
+        if term:  # show the user where their search actually matched
+            view.tag_configure("hit", background=self.t["speech"], foreground=self.t["well"])
+            start = "1.0"
+            while True:
+                pos = view.search(term, start, stopindex="end", nocase=True)
+                if not pos:
+                    break
+                end = f"{pos}+{len(term)}c"
+                view.tag_add("hit", pos, end)
+                start = end
+            first = view.tag_ranges("hit")
+            if first:
+                view.see(first[0])
+        view.configure(state="disabled")
+        ttk.Button(body, text="Close", command=win.destroy, width=10).pack(anchor="e", pady=(8, 0))
+        win.bind("<Escape>", lambda _: win.destroy())
+
     def _clear_history(self):
-        if self.history and messagebox.askyesno("Transcriber", "Clear the job history?"):
-            self.history = []
-            save_history(self.history)
+        if messagebox.askyesno("Transcriber", "Clear the job history and stored transcripts?"):
+            db_clear()
             self._refresh_history()
 
-    def _record_history(self, action, file, outputs, status):
-        entry = {"time": time.strftime("%Y-%m-%d %H:%M"), "action": action,
-                 "file": Path(file).name if file else "—", "outputs": outputs, "status": status}
-        self.history.insert(0, entry)
-        self.history = self.history[:HISTORY_LIMIT]
-        save_history(self.history)
+    def _record_history(self, action, file, outputs, status, text="", info=None):
+        info = info or {}
+        db_record({"time": time.strftime("%Y-%m-%d %H:%M"), "action": action,
+                   "file": Path(file).name if file else "—", "source": file or "",
+                   "outputs": outputs, "status": status, "model": info.get("model", ""),
+                   "device": info.get("device", ""), "language": info.get("language", ""),
+                   "duration": info.get("duration", 0), "segments": info.get("segments", 0)}, text)
         self._refresh_history()
+
+    # ── page: Models ────────────────────────────────────────────────────────
+    def _build_page_models(self, parent):
+        page = ttk.Frame(parent, padding=(10, 8, 10, 6))
+        head = ttk.Frame(page)
+        head.pack(fill="x", pady=(0, 6))
+        self._section_header_standalone(head, "chip", "Models").pack(side="left")
+        ttk.Label(head, text="   What is already on this machine, and what a first run would fetch.",
+                 style="Hint.TLabel").pack(side="left")
+        ttk.Button(head, text="Refresh", command=self._refresh_models).pack(side="right")
+
+        offline = ttk.Frame(page)
+        offline.pack(fill="x", pady=(0, 6))
+        ttk.Checkbutton(offline, text="Offline mode — never reach the internet",
+                       variable=self.offline_var,
+                       command=self._on_offline_change).pack(side="left")
+        ttk.Label(offline, text="   Downloaded models keep working; anything missing fails instead "
+                                "of downloading.", style="Hint.TLabel").pack(side="left")
+
+        wrap = self._sunken(page, depth=2, body="field")
+        wrap.pack(fill="both", expand=True)
+        cols = ("model", "engine", "status", "repo")
+        self.models_tree = ttk.Treeview(wrap.body, columns=cols, show="headings", height=12)
+        for col, label, w in (("model", "Model", 300), ("engine", "Engine", 90),
+                              ("status", "On disk", 150), ("repo", "Hugging Face repo", 330)):
+            self.models_tree.heading(col, text=label)
+            self.models_tree.column(col, width=w, anchor="w")
+        scroll = ttk.Scrollbar(wrap.body, command=self.models_tree.yview)
+        self.models_tree.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.models_tree.pack(fill="both", expand=True)
+
+        foot = ttk.Frame(page)
+        foot.pack(fill="x", pady=(6, 0))
+        self.models_note = tk.StringVar()
+        ttk.Label(foot, textvariable=self.models_note, style="Hint.TLabel").pack(side="left")
+        self.delete_btn = ttk.Button(foot, text="Delete from disk", command=self._delete_model)
+        self.delete_btn.pack(side="right")
+        self.download_btn = ttk.Button(foot, text="Download", command=self._download_model)
+        self.download_btn.pack(side="right", padx=(0, 6))
+        self._refresh_models()
+        return page
+
+    def _refresh_models(self):
+        if not hasattr(self, "models_tree"):
+            return
+        self.models_tree.delete(*self.models_tree.get_children())
+        self.model_rows, total = {}, 0
+        for spec in MODELS:
+            repo = model_repo(spec)
+            if not repo:
+                continue
+            here, size = model_on_disk(spec)
+            total += size
+            iid = self.models_tree.insert("", "end", values=(
+                spec.label.split(" — ")[0], spec.engine,
+                human_size(size) if here else "not downloaded", repo))
+            self.model_rows[iid] = (spec, repo)
+        self.models_note.set(f"{human_size(total)} of models cached in {HF_CACHE}")
+
+    def _selected_model(self):
+        sel = self.models_tree.selection()
+        return self.model_rows.get(sel[0]) if sel else (None, None)
+
+    def _on_offline_change(self):
+        set_offline(self.offline_var.get())
+        self._save_prefs()
+
+    def _download_model(self):
+        spec, repo = self._selected_model()
+        if not repo:
+            return messagebox.showinfo("Transcriber", "Pick a model in the list first.")
+        if self.offline_var.get():
+            return messagebox.showwarning("Transcriber", "Offline mode is on, so nothing can "
+                                                         "be downloaded. Turn it off first.")
+        if self.dl_job and self.dl_job.is_alive():
+            return messagebox.showinfo("Transcriber", "A download is already running.")
+        here, _ = model_on_disk(spec)
+        if here and not messagebox.askyesno("Transcriber",
+                                            f"{repo} is already on disk.\n\nFetch it again?"):
+            return
+        self.download_btn.state(["disabled"])
+        self.dl_job = Download({"repo": repo}, self.events)
+        self.dl_job.start()
+
+    def _delete_model(self):
+        spec, repo = self._selected_model()
+        if not repo:
+            return messagebox.showinfo("Transcriber", "Pick a model in the list first.")
+        folder = model_cache_dir(repo)
+        here, size = model_on_disk(spec)
+        if not here:
+            return messagebox.showinfo("Transcriber", "That model isn't downloaded.")
+        if not messagebox.askyesno("Transcriber", f"Delete {repo} from disk?\n\n"
+                                                  f"This frees {human_size(size)}. It will be "
+                                                  f"downloaded again next time you use it."):
+            return
+        MODEL_CACHE.clear()  # it may be the very model held in memory
+        try:
+            shutil.rmtree(folder)
+        except OSError as e:
+            return messagebox.showerror("Transcriber", f"Could not delete it:\n{e}")
+        self._refresh_models()
+
+    def _on_dl_started(self, repo):
+        self.status_var.set(f"Downloading {repo}…")
+        self.status_state = "running"
+        self._update_status_dot()
+
+    def _on_dl_progress(self, repo, bytes):
+        self.status_var.set(f"Downloading {repo} — {human_size(bytes)} so far…")
+
+    def _on_dl_done(self, repo, ok, text):
+        self.download_btn.state(["!disabled"])
+        self.status_state = "idle" if ok else "error"
+        self._update_status_dot()
+        self.status_var.set(f"Downloaded {repo}" if ok else f"Download failed: {text}")
+        set_offline(self.offline_var.get())  # the worker turned it off to fetch
+        self._refresh_models()
+        if not ok:
+            messagebox.showerror("Transcriber", text)
+        elif self.sound_var.get():
+            play_sound("tada")
 
     # ── page: Settings ──────────────────────────────────────────────────────
     def _build_page_settings(self, parent):
@@ -1371,9 +1815,23 @@ class App(tk.Tk):
             row=1, column=2, padx=(6, 0), pady=(6, 0))
         ttk.Label(behavior, text="Used to fill Output Folder when it's empty.",
                  style="Hint.TLabel").grid(row=2, column=1, sticky="w")
+        ttk.Checkbutton(behavior, text="Keep the model in memory between runs",
+                       variable=self.keep_model_var, command=self._save_prefs).grid(
+            row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(behavior, text="Later runs skip the load entirely; costs a few GB of RAM or "
+                                "VRAM while the app is open.", style="Hint.TLabel").grid(
+            row=4, column=0, columnspan=3, sticky="w")
+        ttk.Label(behavior, text="GPU batch size:", width=20).grid(row=5, column=0, sticky="w",
+                                                                   pady=(6, 0))
+        ttk.Spinbox(behavior, from_=1, to=32, width=4, textvariable=self.batch_var,
+                   command=self._save_prefs).grid(row=5, column=1, sticky="w", pady=(6, 0))
+        ttk.Label(behavior, text="Several chunks at once on a GPU: about 3x faster on large-v3, but "
+                                "coarser segment timings, so it\nturns itself off when you export "
+                                "SRT or VTT. Set 1 to never use it.",
+                 style="Hint.TLabel", justify="left").grid(row=6, column=1, sticky="w")
         behavior.columnconfigure(1, weight=1)
 
-        ttk.Label(page, text=f"Preferences: {CONFIG_PATH}\nHistory: {HISTORY_PATH}",
+        ttk.Label(page, text=f"Preferences: {CONFIG_PATH}\nHistory and transcripts: {DB_PATH}",
                  style="Hint.TLabel", justify="left").pack(anchor="w", pady=(6, 0))
         return page
 
@@ -1560,6 +2018,15 @@ class App(tk.Tk):
                 states.append("speech" if speech[i] else "waiting")
         return states
 
+    def _request_paint(self):
+        """Coalesce repaints: a fast GPU run emits segments far quicker than the eye needs."""
+        if self.paint_after is None:
+            self.paint_after = self.after(90, self._flush_paint)
+
+    def _flush_paint(self):
+        self.paint_after = None
+        self._paint_map()
+
     def _paint_map(self):
         states = self._map_states()
         for i, (ids, state) in enumerate(zip(self.map_tiles, states)):
@@ -1606,6 +2073,8 @@ class App(tk.Tk):
         self.task_combo.state(["!disabled", "readonly"] if spec.translate else ["disabled"])
         for widget in (self.beam_spin, self.vad_check, self.prompt_entry):
             widget.state(["!disabled"] if whisper else ["disabled"])
+        multi = whisper and not spec.language and self.lang_var.get() == "Auto-detect"
+        self.mixed_check.state(["!disabled"] if multi else ["disabled"])
         self.model_note.set(spec.note)
         self.model_note_label.grid() if spec.note else self.model_note_label.grid_remove()
         self._save_prefs()
@@ -1704,6 +2173,8 @@ class App(tk.Tk):
             "language": dict(LANGUAGES)[self.lang_var.get()], "task": self.task_var.get(),
             "device": self.device_var.get(), "vad": self.vad_var.get(), "boost": self.boost_var.get(),
             "beam": beam, "prompt": self.prompt_var.get().strip(),
+            "batch": max(1, int(self.batch_var.get() or 1)), "mixed": self.mixed_var.get(),
+            "offline": self.offline_var.get(),
         }
         self._launch(Job(opts, self.events))
 
@@ -1746,6 +2217,12 @@ class App(tk.Tk):
                                 if isinstance(self.job, Job) else "Stopping…")
             self.cancel_btn.state(["disabled"])
 
+    def _unload_model(self):
+        if self.job:
+            return messagebox.showinfo("Transcriber", "A job is using the model right now.")
+        freed = MODEL_CACHE.clear()
+        self.status_var.set("Model unloaded" if freed else "No model was loaded")
+
     def _clear_all(self):
         if self.job:
             return
@@ -1777,8 +2254,15 @@ class App(tk.Tk):
             f"Language: {self.lang_var.get()}   Formats: {fmts}")
 
     def _save_prefs(self):
+        """Debounced: every checkbox click lands here, and each one wrote to disk."""
         if not hasattr(self, "afmt_var"):  # still building the window
             return
+        self._update_status_summary()
+        if self.prefs_after is None:
+            self.prefs_after = self.after(400, self._flush_prefs)
+
+    def _flush_prefs(self):
+        self.prefs_after = None
         save_config({
             "scheme": self.scheme_var.get(), "sounds": self.sound_var.get(),
             "model": self.model_var.get(), "language": self.lang_var.get(),
@@ -1786,15 +2270,18 @@ class App(tk.Tk):
             "formats": [f for f, v in self.fmt_vars.items() if v.get()],
             "vocabulary": self.prompt_var.get(),
             "audio_format": self.afmt_var.get(), "bitrate": self.bitrate_var.get(),
-            "default_out": self.default_out_var.get(),
+            "default_out": self.default_out_var.get(), "batch": self.batch_var.get(),
+            "offline": self.offline_var.get(), "mixed": self.mixed_var.get(),
+            "keep_model": self.keep_model_var.get(),
         })
-        self._update_status_summary()
 
     def _close(self):
         if self._closing:  # already stopping; a second click on X shouldn't re-ask
             return
-        self._save_prefs()
+        self._flush_prefs()
         if not (self.job and self.job.is_alive()):
+            if not self.keep_model_var.get():
+                MODEL_CACHE.clear()
             self.destroy()
             return
         if not messagebox.askyesno(
@@ -1812,7 +2299,7 @@ class App(tk.Tk):
     def _wait_then_close(self, waited=0):
         self._drain_once()  # let the worker's final "done" land, so history records it
         if self.job is None or not self.job.is_alive() or waited > 20000:
-            self._save_prefs()
+            self._flush_prefs()
             self.destroy()
             return
         self.after(100, lambda: self._wait_then_close(waited + 100))
@@ -1890,7 +2377,7 @@ class App(tk.Tk):
         if start is not None:
             self.map_speech.append((start, position))
         self.map_reached = max(self.map_reached, position)
-        self._paint_map()
+        self._request_paint()
         if not self.duration:
             return
         elapsed = time.time() - self.started_at
@@ -1899,7 +2386,7 @@ class App(tk.Tk):
         self.eta_var.set(f"ETA {short(eta)}")
         self.speed_var.set(f"Speed {speed:.1f}×")
 
-    def _on_done(self, files, partial, count=None):
+    def _on_done(self, files, partial, count=None, text="", info=None):
         action = "Extracted audio" if isinstance(self.job, Convert) else "Transcribed"
         job_file = self.job.opts.get("file") if self.job else self.file_var.get()
         self.map_active = False
@@ -1924,7 +2411,8 @@ class App(tk.Tk):
                 self._append(f"  {f}", "path")
         if not partial and self.sound_var.get():
             play_sound("tada")
-        self._record_history(action, job_file, files, state)
+        info = dict(info or {}, segments=count or 0)
+        self._record_history(action, job_file, files, state, text, info)
         self._reset_buttons()
 
     def _on_error(self, text, files=None):
@@ -1982,7 +2470,8 @@ class App(tk.Tk):
                 self.elapsed_var.set(f"Elapsed {short(time.time() - self.started_at)}")
         except Exception:
             pass
-        self.after(250, self._sample_resources)
+        # only poll quickly while there's something to watch
+        self.after(400 if self.job is not None else 1500, self._sample_resources)
 
     # ── log ──────────────────────────────────────────────────────────────────
     def _append(self, text, tag=None):
