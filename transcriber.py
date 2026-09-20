@@ -413,10 +413,13 @@ def write_outputs(segments, meta, out_dir, stem, formats):
     return written
 
 
-def media_duration(ffmpeg, src):
+def media_duration(ffmpeg, src, timeout=20):
     """Length in seconds from ffmpeg's header dump, or 0 if it can't be read."""
-    proc = subprocess.run([ffmpeg, "-hide_banner", "-i", src],
-                          capture_output=True, creationflags=NO_WINDOW)
+    try:
+        proc = subprocess.run([ffmpeg, "-hide_banner", "-i", src], capture_output=True,
+                              creationflags=NO_WINDOW, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 0
     m = re.search(rb"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", proc.stderr)
     if not m:
         return 0
@@ -513,6 +516,10 @@ class Worker(threading.Thread):
 class Job(Worker):
     """Runs one transcription."""
 
+    def __init__(self, opts, events):
+        super().__init__(opts, events)
+        self.segments = []  # kept on the job so a failed run can still save them
+
     def prepare_audio(self, src, boost, workdir):
         """Decode to 16 kHz mono WAV with ffmpeg, optionally levelling quiet speech."""
         ffmpeg = shutil.which("ffmpeg")
@@ -524,15 +531,19 @@ class Job(Worker):
         if boost:
             cmd += ["-af", LEVELLER]
         cmd.append(str(out))
-        proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
-        while proc.poll() is None:
-            if self.cancelled.is_set():
-                proc.kill()
-                raise Cancelled()
-            time.sleep(0.2)
-        if proc.returncode != 0:
-            raise RuntimeError("ffmpeg could not read this file:\n"
-                               + proc.stderr.read().decode(errors="ignore"))
+        # stderr goes to a file so a chatty ffmpeg can't fill the pipe and stall
+        with tempfile.TemporaryFile() as err:
+            proc = subprocess.Popen(cmd, stderr=err, creationflags=NO_WINDOW)
+            while proc.poll() is None:
+                if self.cancelled.is_set():
+                    proc.kill()
+                    proc.wait()
+                    raise Cancelled()
+                time.sleep(0.2)
+            if proc.returncode != 0:
+                err.seek(0)
+                raise RuntimeError("ffmpeg could not read this file:\n"
+                                   + err.read().decode(errors="ignore").strip())
         with wave.open(str(out)) as w:
             duration = w.getnframes() / w.getframerate()
         return str(out), duration
@@ -581,53 +592,75 @@ class Job(Worker):
         stream = ((s.start, s.end, s.text) for s in model.with_vad(vad).recognize(audio))
         return device, "auto", duration, stream
 
-    def run(self):
+    def _attempt(self, device):
+        """One full pass on one device. Segments land in self.segments as they arrive."""
+        o, spec = self.opts, self.opts["spec"]
+        language = spec.language or o["language"]
+        lang, duration = None, 0
+        with tempfile.TemporaryDirectory(prefix="transcriber-") as work:
+            audio = o["file"]
+            if spec.engine == "parakeet" or o["boost"]:
+                self.emit("status", text="Extracting audio"
+                                         f"{' and levelling quiet speech' if o['boost'] else ''}…")
+                audio, duration = self.prepare_audio(o["file"], o["boost"], work)
+
+            if spec.engine == "parakeet":
+                device, lang, duration, stream = self.run_parakeet(audio, o["model_id"], device, duration)
+            else:
+                device, lang, duration, stream = self.run_whisper(audio, o["model_id"], device, language)
+
+            for start, end, text in stream:
+                if self.cancelled.is_set():
+                    break
+                text = text.strip()
+                if not text:
+                    continue
+                self.segments.append({"start": round(start, 2), "end": round(end, 2), "text": text})
+                self.emit("progress", position=end, start=start, text=f"[{short(start)}] {text}")
+        return device, lang, duration
+
+    def _save(self, lang, duration, device, partial):
         o = self.opts
-        spec = o["spec"]
-        segments, device, lang, duration = [], o["device"], None, 0
-        try:
-            if device == "auto":
-                device = "cuda" if cuda_available() else "cpu"
-            language = spec.language or o["language"]
-
-            with tempfile.TemporaryDirectory(prefix="transcriber-") as work:
-                audio = o["file"]
-                if spec.engine == "parakeet" or o["boost"]:
-                    self.emit("status", text="Extracting audio"
-                                             f"{' and levelling quiet speech' if o['boost'] else ''}…")
-                    audio, duration = self.prepare_audio(o["file"], o["boost"], work)
-
-                if spec.engine == "parakeet":
-                    device, lang, duration, stream = self.run_parakeet(audio, o["model_id"], device, duration)
-                else:
-                    device, lang, duration, stream = self.run_whisper(audio, o["model_id"], device, language)
-
-                for start, end, text in stream:
-                    if self.cancelled.is_set():
-                        break
-                    text = text.strip()
-                    if not text:
-                        continue
-                    segments.append({"start": round(start, 2), "end": round(end, 2), "text": text})
-                    self.emit("progress", position=end, start=start, text=f"[{short(start)}] {text}")
-        except Cancelled:
-            pass
-        except Exception as e:
-            self.emit("error", text=f"{type(e).__name__}: {e}")
-            return
-
-        partial = self.cancelled.is_set()
-        if partial and not segments:
-            self.emit("done", files=[], partial=True, count=0)
-            return
         src = Path(o["file"])
         meta = {
-            "file": src.name, "language": lang, "model": o["model_id"], "engine": spec.engine,
+            "file": src.name, "language": lang, "model": o["model_id"], "engine": o["spec"].engine,
             "device": device, "task": o["task"], "duration": duration, "partial": partial,
         }
         stem = src.stem + ("_partial" if partial else "")
-        written = write_outputs(segments, meta, Path(o["out_dir"]), stem, o["formats"])
-        self.emit("done", files=[str(p) for p in written], partial=partial, count=len(segments))
+        written = write_outputs(self.segments, meta, Path(o["out_dir"]), stem, o["formats"])
+        return [str(p) for p in written]
+
+    def run(self):
+        device = self.opts["device"]
+        if device == "auto":
+            device = "cuda" if cuda_available() else "cpu"
+        lang, duration = None, 0
+        try:
+            try:
+                device, lang, duration = self._attempt(device)
+            except Cancelled:
+                raise
+            except Exception as e:
+                # cuDNN and friends usually fail on the first inference, not at load time,
+                # so the fallback inside run_whisper can't catch them
+                if device != "cuda" or self.segments:
+                    raise
+                self.emit("log", text=f"GPU unavailable ({e}); retrying on CPU.")
+                device, lang, duration = self._attempt("cpu")
+        except Cancelled:
+            pass
+        except Exception as e:
+            # never throw away what was already transcribed
+            files = self._save(lang, duration, device, partial=True) if self.segments else []
+            self.emit("error", text=f"{type(e).__name__}: {e}", files=files)
+            return
+
+        partial = self.cancelled.is_set()
+        if partial and not self.segments:
+            self.emit("done", files=[], partial=True, count=0)
+            return
+        self.emit("done", files=self._save(lang, duration, device, partial),
+                  partial=partial, count=len(self.segments))
 
 
 class Convert(Worker):
@@ -767,7 +800,9 @@ class App(tk.Tk):
         self.history_rows = {}
         self.active_nav = "transcribe"
         self.status_state = "idle"
+        self.probed_path = None
         self._titlebar_done = False
+        self._closing = False
 
         self.style = ttk.Style(self)
         self.style.theme_use("alt")  # Tk's Windows 95 look: bevels, sunken fields, dotted focus
@@ -1600,28 +1635,40 @@ class App(tk.Tk):
 
     def _update_file_info(self):
         path = self.file_var.get().strip()
+        if path == self.probed_path:  # focus-out fires often; only probe real changes
+            return
+        self.probed_path = path
         p = Path(path)
         if not path or not p.is_file():
             self.fname_var.set("No file selected")
             self.fmeta_var.set("Choose a recording to see its details.")
+            self._update_file_icon()
             return
         try:
             size = human_size(p.stat().st_size)
         except OSError:
             size = "—"
         ext = p.suffix.upper().lstrip(".")
-        dur_txt = "—"
+        self.fname_var.set(p.name)
+        self.fmeta_var.set(f"{ext}  ·  reading…  ·  {size}")
+        self._update_file_icon()
+        # ffmpeg can take a moment (or hang on a dead network path), so ask off the UI thread
+        threading.Thread(target=self._probe_duration, args=(path, ext, size), daemon=True).start()
+
+    def _probe_duration(self, path, ext, size):
+        seconds = 0
         ffmpeg = shutil.which("ffmpeg")
         if ffmpeg:
             try:
-                d = media_duration(ffmpeg, path)
-                if d:
-                    dur_txt = hhmmss(d)
+                seconds = media_duration(ffmpeg, path)
             except Exception:
                 pass
-        self.fname_var.set(p.name)
-        self.fmeta_var.set(f"{ext}  ·  {dur_txt}  ·  {size}")
-        self._update_file_icon()
+        self.events.put(("probe", {"path": path, "text": f"{ext}  ·  "
+                                   f"{hhmmss(seconds) if seconds else '—'}  ·  {size}"}))
+
+    def _on_probe(self, path, text):
+        if path == self.file_var.get().strip():  # ignore a probe the user has moved on from
+            self.fmeta_var.set(text)
 
     def _pick_out(self):
         path = filedialog.askdirectory()
@@ -1744,10 +1791,31 @@ class App(tk.Tk):
         self._update_status_summary()
 
     def _close(self):
+        if self._closing:  # already stopping; a second click on X shouldn't re-ask
+            return
         self._save_prefs()
-        if self.job:
-            self.job.cancelled.set()
-        self.destroy()
+        if not (self.job and self.job.is_alive()):
+            self.destroy()
+            return
+        if not messagebox.askyesno(
+                "Transcriber", "A job is still running.\n\n"
+                "Stop it and save what has been transcribed so far?"):
+            return
+        # the worker is a daemon thread: destroying the window now would kill it
+        # mid-write, so wait for it to finish saving first
+        self._closing = True
+        self.job.cancelled.set()
+        self.status_var.set("Stopping — saving what has been transcribed so far…")
+        self.cancel_btn.state(["disabled"])
+        self._wait_then_close()
+
+    def _wait_then_close(self, waited=0):
+        self._drain_once()  # let the worker's final "done" land, so history records it
+        if self.job is None or not self.job.is_alive() or waited > 20000:
+            self._save_prefs()
+            self.destroy()
+            return
+        self.after(100, lambda: self._wait_then_close(waited + 100))
 
     def _about(self):
         prev = self.active_nav
@@ -1792,13 +1860,16 @@ class App(tk.Tk):
         win.grab_set()
 
     # ── event loop ───────────────────────────────────────────────────────────
-    def _drain_events(self):
+    def _drain_once(self):
         try:
             while True:
                 kind, data = self.events.get_nowait()
                 getattr(self, f"_on_{kind}")(**data)
         except queue.Empty:
             pass
+
+    def _drain_events(self):
+        self._drain_once()
         self.after(150, self._drain_events)
 
     def _on_status(self, text):
@@ -1856,18 +1927,23 @@ class App(tk.Tk):
         self._record_history(action, job_file, files, state)
         self._reset_buttons()
 
-    def _on_error(self, text):
+    def _on_error(self, text, files=None):
+        files = files or []
         action = "Extracted audio" if isinstance(self.job, Convert) else "Transcribed"
         job_file = self.job.opts.get("file") if self.job else self.file_var.get()
         self.map_active = False
         self._paint_map()
-        self.status_var.set("Failed")
+        self.status_var.set("Failed — partial transcript saved" if files else "Failed")
         self.status_state = "error"
         self._update_status_dot()
         self.eta_var.set("ETA —")
         self.speed_var.set("Speed —")
         self._append(f"ERROR: {text}")
-        self._record_history(action, job_file, [], "Failed")
+        if files:
+            self._append("Saved what was transcribed before the error:")
+            for f in files:
+                self._append(f"  {f}", "path")
+        self._record_history(action, job_file, files, "Failed — partial saved" if files else "Failed")
         self._reset_buttons()
         messagebox.showerror("Transcriber", text)
 
