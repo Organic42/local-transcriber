@@ -8,8 +8,9 @@ A Windows desktop application for transcribing audio and video entirely on your 
 - **Language and hardware control:** auto-detect or force a language, run on GPU (NVIDIA/CUDA) or CPU
 - **Export formats:** TXT, SRT, VTT, JSON and Markdown, any combination in one pass
 - **Audio extraction:** save the audio track of a screen recording or video as MP3, M4A, Opus, OGG, FLAC or WAV
-- **Live job monitoring:** a transcript map showing which parts of the recording contain speech, plus ETA, processing speed, and CPU/RAM/GPU/VRAM usage
-- **Interface:** a Windows 95–styled UI with seven selectable colour schemes, including Light, Dark and Terminal variants
+- **Live job monitoring:** a transcript map showing which parts of the recording contain speech, plus ETA, processing speed, and a System Monitor panel for CPU/RAM/GPU/VRAM usage
+- **Job history:** every transcription and extraction is logged, with a double-click to reopen its output folder
+- **Interface:** a retro desktop UI — sidebar navigation, numbered workflow sections and a decorative panel — with eight selectable colour schemes, including Light, Dark and Terminal variants
 
 ## Requirements
 
@@ -55,7 +56,7 @@ or double-click `run.bat` on Windows.
 | Vocabulary | Comma-separated names and terms to spell correctly, e.g. `ArthaFlow, RoDTEP, Nashik` (Whisper models) |
 | Formats | Output is written as `<file name>.<extension>` in the chosen output folder |
 
-Clicking **Stop** during a run saves everything transcribed so far as `<file name>_partial.<extension>`. Colour scheme, sound preference, model, language, formats, vocabulary, and audio export settings persist between sessions in `~/.local-transcriber.json`.
+Clicking **Stop** during a run saves everything transcribed so far as `<file name>_partial.<extension>`. Colour scheme, sound preference, model, language, formats, vocabulary, default output folder and audio export settings persist between sessions in `~/.local-transcriber.json`.
 
 ## Transcript map
 
@@ -63,20 +64,24 @@ A grid of blocks represents the full length of the recording, filling in left to
 
 | Block | Meaning |
 |---|---|
-| Filled | Speech detected in this segment |
+| Filled (green) | Speech detected in this segment |
 | Empty | Processed, no speech detected |
-| Blinking | Currently being transcribed |
+| Processing (blinking) | Currently being transcribed |
 | Grey | Not yet reached |
 
-Once a job completes, the map gives an at-a-glance view of where the talking happens in the recording, making pauses and silent stretches easy to spot. Blinking respects the system's animation settings. During audio extraction, the map fills as ffmpeg processes the file.
+Once a job completes, the map gives an at-a-glance view of where the talking happens in the recording, making pauses and silent stretches easy to spot. Blinking respects the system's animation settings. During audio extraction, the map simply fills as ffmpeg processes the file.
 
 ## Interface
 
-The application uses a Windows 95–inspired interface built entirely with Tk's standard widgets — no additional UI dependencies.
+The application uses a retro desktop interface built entirely with Tk's standard widgets — no additional UI dependencies.
 
-- **View → Color scheme:** four classic Windows schemes (Windows Standard, High Contrast Black, Eggplant, Brick) plus Light, Dark and Terminal variants. Terminal renders in green phosphor with a monospace bitmap font throughout. The transcript map recolors to match.
-- **View → Sounds:** plays a completion chime when a job finishes; can be disabled.
-- **Help → About:** displays the active speech engines, system memory, and GPU information.
+- **Sidebar:** Transcribe, Extract Audio, History, Settings and About. Transcribe and Extract Audio open the same workspace; History and Settings are their own pages.
+- **Transcribe workspace:** five numbered sections — Select File (with a details strip showing type, length and size), Model & Language, Options, Audio Extraction and Output Folder — followed by the action buttons, the transcript map and a live transcript alongside the System Monitor panel.
+- **History:** a log of every completed job (time, action, file and result). Double-click a row to open its output folder, or clear the list from the same page.
+- **Settings:** pick a colour scheme, toggle completion sounds, and set a default output folder used whenever the Output Folder field is left empty.
+- **View → Color scheme:** the same eight schemes as the Settings page — four classic Windows looks (Windows Standard, High Contrast Black, Eggplant, Brick), Light, Dark, Terminal, and the default Neon Dusk. Terminal renders in green phosphor with a monospace bitmap font throughout. The transcript map and System Monitor recolor to match; the sidebar and header stay fixed.
+- **View → Sounds:** plays a completion chime when a job finishes; can be disabled here or from Settings.
+- **Help → About** (or the sidebar's About): displays the active speech engines, system memory, and GPU information.
 - **Keyboard shortcut:** Ctrl+O opens a recording file.
 
 ## Audio extraction

@@ -121,59 +121,80 @@ LEVELLER = "dynaudnorm=f=150:g=15:p=0.95:m=30"  # evens out quiet and loud speak
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
-# ── Look: Windows 95 ─────────────────────────────────────────────────────────
+# ── Look: Windows 95 desktop, Japanese-PC-manual trim ───────────────────────
+VERSION = "1.0"
+TAGLINE = "SPEECH TO TEXT. ON YOUR MACHINE. ALWAYS."
 UI_FONT = ("MS Sans Serif", 8)  # a scheme can swap it with a "font" entry
 LOG_FONT = ("Fixedsys", 9)
+
+# Sidebar, header ribbon and the decorative panel are the app's fixed identity — they
+# keep this palette no matter which content colour scheme is picked below.
+CHROME = dict(bg="#12141c", bg2="#191c28", active="#232840", text="#e8eaf2", muted="#7a8096",
+              accent="#3be08a", accent2="#00d4ff")
+PANEL = dict(bg="#1c1a36", bg2="#252048", text="#eef0fb", muted="#9c97c4", accent="#6df0c2",
+             accent2="#ffd166")
 
 # Colour schemes after the Win95 Appearance tab. face/light/shadow/dark are the four
 # shades of a 3D bevel; well/tile/speech/working colour the transcript map.
 SCHEMES = {
+    "Neon Dusk": dict(
+        face="#c9cdd6", light="#f2f3f6", shadow="#8a8fa0", dark="#3a3d4a", text="#1b1d24",
+        field="#ffffff", field_text="#1b1d24", select="#00b8d9", select_text="#ffffff",
+        disabled="#9aa0ab", trough="#dfe2e8", muted="#5b6070",
+        well="#11141c", tile="#3a3f4c", speech="#33e08a", working="#ff3fae",
+        # the well is dark here (unlike every other scheme, where well == field), so text
+        # painted on it needs its own light colour rather than field_text
+        well_text="#eef0f8", well_muted="#9096ac"),
     "Windows Standard": dict(
         face="#c0c0c0", light="#ffffff", shadow="#808080", dark="#000000", text="#000000",
         field="#ffffff", field_text="#000000", select="#000080", select_text="#ffffff",
-        disabled="#808080", trough="#e0e0e0",
+        disabled="#808080", trough="#e0e0e0", muted="#4b4b4b",
         well="#ffffff", tile="#c0c0c0", speech="#0000ff", working="#ff0000"),
     "High Contrast Black": dict(
         face="#000000", light="#ffffff", shadow="#808080", dark="#ffffff", text="#ffffff",
         field="#000000", field_text="#ffffff", select="#800080", select_text="#ffffff",
-        disabled="#808080", trough="#404040", emboss=False,  # a white emboss reads as enabled here
+        disabled="#808080", trough="#404040", emboss=False, muted="#b0b0b0",
         well="#000000", tile="#808080", speech="#00ffff", working="#ffff00"),
     "Eggplant": dict(
         face="#90b0a8", light="#d8e4e0", shadow="#587870", dark="#000000", text="#000000",
         field="#ffffff", field_text="#000000", select="#584078", select_text="#ffffff",
-        disabled="#587870", trough="#b8ccc8",
+        disabled="#587870", trough="#b8ccc8", muted="#2f4440",
         well="#ffffff", tile="#90b0a8", speech="#800080", working="#ff0000"),
     "Brick": dict(
         face="#c2bfa5", light="#e8e6d8", shadow="#817e6a", dark="#000000", text="#000000",
         field="#ffffff", field_text="#000000", select="#800000", select_text="#ffffff",
-        disabled="#817e6a", trough="#dcdac8",
+        disabled="#817e6a", trough="#dcdac8", muted="#4a4738",
         well="#ffffff", tile="#c2bfa5", speech="#800000", working="#008000"),
     # the app's earlier Light, Dark and Terminal colours, given Win95 bevels
     "Light": dict(
         face="#f3f4f6", light="#ffffff", shadow="#9ca3af", dark="#4b5563", text="#1f2328",
         field="#ffffff", field_text="#1f2328", select="#2563eb", select_text="#ffffff",
-        disabled="#9ca3af", trough="#e5e7eb",
+        disabled="#9ca3af", trough="#e5e7eb", muted="#6b7280",
         well="#ffffff", tile="#e5e7eb", speech="#2563eb", working="#dc2626"),
     "Dark": dict(
         face="#2b2d31", light="#4e5058", shadow="#1a1b1e", dark="#0e0f11", text="#e3e5e8",
         field="#1e1f22", field_text="#e3e5e8", select="#35507a", select_text="#ffffff",
-        disabled="#72767d", trough="#232428", emboss=False,
+        disabled="#72767d", trough="#232428", emboss=False, muted="#9aa0a6",
         well="#1e1f22", tile="#383a40", speech="#5b9bff", working="#ff6b6b"),
     "Terminal": dict(
         face="#050805", light="#39ff6a", shadow="#15522a", dark="#23a045", text="#39ff6a",
         field="#0b140c", field_text="#39ff6a", select="#15522a", select_text="#39ff6a",
-        disabled="#1b6b31", trough="#0b140c", emboss=False,
+        disabled="#1b6b31", trough="#0b140c", emboss=False, muted="#23a045",
         well="#0b140c", tile="#0f1f11", speech="#39ff6a", working="#ffffff",
         font=("Fixedsys", 9), mono_icons=True),  # green phosphor: one typeface, one colour
 }
-SCHEME_GROUPS = [["Windows Standard", "High Contrast Black", "Eggplant", "Brick"],
+for _scheme in SCHEMES.values():  # every other scheme has well == field, so this is a no-op there
+    _scheme.setdefault("well_text", _scheme["field_text"])
+    _scheme.setdefault("well_muted", _scheme["muted"])
+del _scheme
+SCHEME_GROUPS = [["Neon Dusk"], ["Windows Standard", "High Contrast Black", "Eggplant", "Brick"],
                  ["Light", "Dark", "Terminal"]]
-DEFAULT_SCHEME = "Windows Standard"
+DEFAULT_SCHEME = "Neon Dusk"
 
 # 8-bit icons. "k" is the outline and takes the scheme's text colour; "." is transparent.
 PIXEL_COLORS = {"w": "#ffffff", "s": "#c0c0c0", "g": "#808080", "r": "#ff0000",
                 "m": "#800000", "G": "#00c000", "y": "#ffff00", "o": "#c08000",
-                "b": "#0000ff", "n": "#000080"}
+                "b": "#0000ff", "n": "#000080", "c": "#00d4ff"}
 SPRITES = {
     "play": ["........",
              "kk......",
@@ -223,6 +244,110 @@ SPRITES = {
                  "kkkkkkkkkkkkkkkk",
                  "................",
                  "................"],
+    # section-header icons (8x8, monochrome silhouettes drawn with mono=)
+    "doc": [".kkkkk..",
+            ".k...k..",
+            ".k....k.",
+            ".k....k.",
+            ".k....k.",
+            ".k....k.",
+            ".k....k.",
+            ".kkkkkk."],
+    "chip": ["..k..k..",
+             "..k..k..",
+             "kkkkkkkk",
+             "k......k",
+             "k......k",
+             "k......k",
+             "kkkkkkkk",
+             "..k..k.."],
+    "wrench": ["kk......",
+               "kkk.....",
+               ".kkk....",
+               "..kkk...",
+               "...kkk..",
+               "....kkk.",
+               ".....kkk",
+               "......kk"],
+    "chart": ["........",
+              "......k.",
+              "......k.",
+              "....k.k.",
+              "....k.k.",
+              "..k.k.k.",
+              "..k.k.k.",
+              "kkkkkkk."],
+    "trash": [".kkkkk..",
+              "..kkk...",
+              "kkkkkkk.",
+              ".k...k..",
+              ".k.k.k..",
+              ".k.k.k..",
+              ".k.k.k..",
+              ".kkkkk.."],
+    # sidebar nav icons (9x9, monochrome silhouettes)
+    "home": ["....k....",
+             "...kkk...",
+             "..kkkkk..",
+             ".kkkkkkk.",
+             "kkkkkkkkk",
+             "kk.....kk",
+             "kk.kkk.kk",
+             "kk.kkk.kk",
+             "kkkkkkkkk"],
+    "wave": [".........",
+             "....k....",
+             "....k....",
+             "..k.k.k..",
+             "..k.k.k..",
+             "k.k.k.k.k",
+             "k.k.k.k.k",
+             "k.k.k.k.k",
+             "k.k.k.k.k"],
+    "clock": ["..kkkkk..",
+              ".k.....k.",
+              "k...k...k",
+              "k...k...k",
+              "k...kk..k",
+              "k.......k",
+              "k.......k",
+              ".k.....k.",
+              "..kkkkk.."],
+    "gear": ["..k...k..",
+             ".kkk.kkk.",
+             "kk..k..kk",
+             "k..kkk..k",
+             "kk.k.k.kk",
+             "k..kkk..k",
+             "kk..k..kk",
+             ".kkk.kkk.",
+             "..k...k.."],
+    "question": [".kkkkk...",
+                 "kk...kk..",
+                 "k.....k..",
+                 "....kk...",
+                 "...kk....",
+                 "..kk.....",
+                 "..kk.....",
+                 ".........",
+                 "..kk....."],
+    # decorative panel art
+    "computer_face": [".kkkkkkkk.",
+                       "kcccccccck",
+                       "kc.k..k.ck",
+                       "kc.kkkk.ck",
+                       "kccccccck.",
+                       "kkkkkkkkkk",
+                       ".kssssssk.",
+                       "..kssssk..",
+                       ".kkkkkkkk."],
+    "plant": ["..kk..",
+              ".kGGk.",
+              "kGGGGk",
+              ".kGGk.",
+              "..kk..",
+              ".koook",
+              "..kkk."],
 }
 
 
@@ -241,6 +366,21 @@ def short(seconds):
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
+def hhmmss(seconds):
+    """H:MM:SS, always with an hour, for the file-info strip."""
+    seconds = int(max(seconds, 0))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}"
+
+
+def human_size(num_bytes):
+    for unit in ("B", "KB", "MB", "GB"):
+        if num_bytes < 1024 or unit == "GB":
+            return f"{num_bytes:.0f} {unit}" if unit == "B" else f"{num_bytes:.1f} {unit}"
+        num_bytes /= 1024
 
 
 def write_outputs(segments, meta, out_dir, stem, formats):
@@ -330,6 +470,25 @@ def load_config():
 def save_config(data):
     try:
         CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+HISTORY_PATH = Path.home() / ".local-transcriber-history.json"
+HISTORY_LIMIT = 50
+
+
+def load_history():
+    try:
+        data = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def save_history(entries):
+    try:
+        HISTORY_PATH.write_text(json.dumps(entries[:HISTORY_LIMIT], indent=2), encoding="utf-8")
     except Exception:
         pass
 
@@ -524,14 +683,19 @@ class Convert(Worker):
 
 
 # ── UI ───────────────────────────────────────────────────────────────────────
-LABEL_W = 14                                          # width of the left-hand field labels
-MAP_ROWS, MAP_TILE, MAP_GAP, MAP_MARGIN = 8, 9, 2, 4  # transcript map geometry, in pixels
+LABEL_W = 10                                          # width of inline field labels
+MAP_ROWS, MAP_TILE, MAP_GAP, MAP_MARGIN = 3, 11, 2, 4  # transcript map geometry, in pixels
 MAP_HEIGHT = 2 * MAP_MARGIN + MAP_ROWS * (MAP_TILE + MAP_GAP) - MAP_GAP
+SIDEBAR_W = 152
+NAV_ITEMS = [("transcribe", "Transcribe", "home"), ("extract", "Extract Audio", "wave"),
+             ("history", "History", "clock"), ("settings", "Settings", "gear"),
+             ("about", "About", "question")]
+VIDEO_EXT = {".mp4", ".mkv", ".mov", ".webm", ".avi"}
 
 
 def sprite(master, rows, zoom, outline="#000000", emboss=None, mono=None, pad=1):
     """PhotoImage from a pixel-art grid. emboss=(light, shadow) greys it out like a disabled Win95
-    icon; mono=fill colour draws it in two colours, outline and fill."""
+    icon; mono=fill colour draws every non-transparent pixel in one flat colour (a silhouette)."""
     img = tk.PhotoImage(master=master, width=len(rows[0]) + pad, height=len(rows) + pad)
     pixels = [(x, y, ch) for y, row in enumerate(rows) for x, ch in enumerate(row) if ch != "."]
     if emboss:
@@ -570,9 +734,9 @@ class Sunken(tk.Frame):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Local Transcriber")
-        self.geometry("840x900")
-        self.minsize(760, 800)
+        self.title(f"Local Transcriber v{VERSION}")
+        self.geometry("1180x900")
+        self.minsize(1080, 820)
 
         self.config_data = load_config()
         self.events = queue.Queue()
@@ -583,6 +747,9 @@ class App(tk.Tk):
         self.proc.cpu_percent(None)
         psutil.cpu_percent(None)
         self.combos, self.sunkens, self.icon_buttons, self.icons = [], [], [], {}
+        self.section_icons = []       # (label, sprite_key) awaiting a theme colour
+        self.meter_frac = {}          # key -> last fraction drawn, so a resize can redraw it
+        self.meter_canvas = {}
         self.t = SCHEMES[DEFAULT_SCHEME]
         # Tk's named fonts: reconfiguring them restyles every widget that uses them,
         # entries and lists included
@@ -596,12 +763,19 @@ class App(tk.Tk):
         self.blink_on, self.blink_after = True, None
         self.animate = animations_enabled()
 
+        self.history = load_history()
+        self.history_rows = {}
+        self.active_nav = "transcribe"
+        self.status_state = "idle"
+        self._titlebar_done = False
+
         self.style = ttk.Style(self)
         self.style.theme_use("alt")  # Tk's Windows 95 look: bevels, sunken fields, dotted focus
         cfg = self.config_data
         saved_scheme = cfg.get("scheme")
         self.scheme_var = tk.StringVar(value=saved_scheme if saved_scheme in SCHEMES else DEFAULT_SCHEME)
         self.sound_var = tk.BooleanVar(value=cfg.get("sounds", True))
+        self.default_out_var = tk.StringVar(value=cfg.get("default_out", ""))
         self.app_icons = [sprite(self, SPRITES["cassette"], zoom, pad=0) for zoom in (1, 2, 4)]
         self.iconphoto(True, *self.app_icons[:2])
 
@@ -610,25 +784,42 @@ class App(tk.Tk):
         self._apply_scheme()
         self._on_model_change()
         self._on_audio_format_change()
+        self._update_file_info()
+        self._nav_click("transcribe")
         self.protocol("WM_DELETE_WINDOW", self._close)
+        self.bind("<Map>", self._on_map_once)
         self.after(150, self._drain_events)
         self.after(250, self._sample_resources)
 
-    # layout
-    def _combo(self, parent, var, values, width):
-        cb = ttk.Combobox(parent, textvariable=var, state="readonly", width=width, values=values)
-        self.combos.append(cb)
-        return cb
+    # ── fixed chrome: title bar, header ribbon, sidebar ─────────────────────
+    def _on_map_once(self, _event=None):
+        if not self._titlebar_done:
+            self._titlebar_done = True
+            self._style_titlebar()
 
-    def _sunken(self, parent, depth=2, body="field"):
-        well = Sunken(parent, depth, body)
-        self.sunkens.append(well)
-        return well
+    def _style_titlebar(self):
+        """Best-effort: paint the native title bar navy to match the app (Windows 11 only)."""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+            hwnd = int(self.wm_frame(), 16)
+            dwmapi = ctypes.windll.dwmapi
 
-    def _icon_button(self, parent, text, icon, command, **kw):
-        button = ttk.Button(parent, text=text, command=command, compound="left", **kw)
-        self.icon_buttons.append((button, icon))
-        return button
+            def set_attr(attr, value):
+                v = ctypes.c_int(value)
+                dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), ctypes.sizeof(v))
+
+            def bgr(hex_color):
+                r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+                return (b << 16) | (g << 8) | r
+
+            set_attr(20, 1)                      # DWMWA_USE_IMMERSIVE_DARK_MODE
+            set_attr(35, bgr(CHROME["bg"]))       # DWMWA_CAPTION_COLOR
+            set_attr(36, bgr(CHROME["text"]))     # DWMWA_TEXT_COLOR
+            set_attr(33, 1)                       # DWMWA_WINDOW_CORNER_PREFERENCE = DO_NOT_ROUND
+        except Exception:
+            pass  # older Windows, or DWM refused — the app still works, just unstyled
 
     def _build_menu(self):
         bar = tk.Menu(self)
@@ -654,6 +845,13 @@ class App(tk.Tk):
                              command=self._save_prefs)
         bar.add_cascade(label="View", underline=0, menu=view)
 
+        tools = tk.Menu(bar, tearoff=False)
+        tools.add_command(label="Extract audio", underline=0, command=lambda: self._nav_click("extract"))
+        tools.add_command(label="View history", underline=5, command=lambda: self._nav_click("history"))
+        tools.add_separator()
+        tools.add_command(label="Clear live transcript", underline=0, command=self._clear_log)
+        bar.add_cascade(label="Tools", underline=0, menu=tools)
+
         helpm = tk.Menu(bar, tearoff=False)
         helpm.add_command(label="About Local Transcriber", underline=0, command=self._about)
         bar.add_cascade(label="Help", underline=0, menu=helpm)
@@ -661,169 +859,516 @@ class App(tk.Tk):
         self.bind_all("<Control-o>", lambda _: self._pick_file())
 
     def _build(self):
-        cfg = self.config_data
-        group = {"fill": "x", "padx": 8, "pady": (0, 6)}
-        inner = (8, 2, 8, 6)
-        cell = {"sticky": "w", "pady": 2}
-        root = ttk.Frame(self, padding=(0, 6, 0, 0))
-        root.pack(fill="both", expand=True)
+        # status bar first, then the header ribbon, so the body fills whatever is left
+        self._build_status(self)
+        self._build_ribbon(self)
 
-        # status bar first, so it keeps its place when the window gets short
-        status = ttk.Frame(root)
-        status.pack(side="bottom", fill="x", padx=2, pady=(0, 2))
-        ttk.Sizegrip(status).pack(side="right", anchor="se")
+        body = tk.Frame(self, bd=0, highlightthickness=0)
+        body.pack(side="top", fill="both", expand=True)
+        self._build_sidebar(body)
+
+        content = tk.Frame(body, bd=0, highlightthickness=0)
+        content.pack(side="left", fill="both", expand=True)
+        content.grid_rowconfigure(0, weight=1)
+        content.grid_columnconfigure(0, weight=1)
+
+        page = self._build_page_transcribe(content)
+        page.grid(row=0, column=0, sticky="nsew")
+        self.pages = {"transcribe": page, "extract": page,
+                      "history": self._build_page_history(content),
+                      "settings": self._build_page_settings(content)}
+        for key, pg in self.pages.items():
+            if key not in ("transcribe", "extract"):
+                pg.grid(row=0, column=0, sticky="nsew")
+
+    def _build_ribbon(self, parent):
+        c = CHROME
+        ribbon = tk.Frame(parent, background=c["bg"], height=38)
+        ribbon.pack(side="top", fill="x")
+        ribbon.pack_propagate(False)
+        left = tk.Frame(ribbon, background=c["bg"])
+        left.pack(side="left", padx=10)
+        tk.Label(left, image=self.app_icons[1], background=c["bg"]).pack(side="left", pady=6)
+        title_font = tkfont.Font(self, family="Fixedsys", size=12)
+        tk.Label(left, text="LOCAL TRANSCRIBER", background=c["bg"], foreground=c["text"],
+                 font=title_font).pack(side="left", padx=(8, 6))
+        badge = Sunken(left, depth=1, body="face")
+        badge.rings[0][0].configure(background=c["accent"])
+        badge.rings[1][0].configure(background=c["bg2"])
+        badge.body.configure(background=c["bg2"])
+        tk.Label(badge.body, text=f"v{VERSION}", background=c["bg2"], foreground=c["accent2"],
+                 font=("Fixedsys", 8)).pack(padx=4)
+        badge.pack(side="left")
+        tk.Label(ribbon, text=TAGLINE, background=c["bg"], foreground=c["muted"],
+                 font=("Fixedsys", 8)).pack(side="right", padx=12)
+
+    def _build_status(self, parent):
+        status = self._sunken(parent, depth=1, body="face")
+        status.pack(side="bottom", fill="x")
+        row = status.body
+        left = ttk.Frame(row)
+        left.pack(side="left", fill="x", expand=True, padx=6, pady=2)
+        self.status_dot = tk.Label(left, text="●", font=UI_FONT)
+        self.status_dot.pack(side="left")
         self.status_var = tk.StringVar(value="Ready")
-        self.res_vars = {k: tk.StringVar() for k in ("cpu", "ram", "gpu", "vram")}
-        for key, width in (("vram", 15), ("gpu", 13), ("ram", 21), ("cpu", 17)):
-            pane = self._sunken(status, depth=1, body="face")
-            pane.pack(side="right", padx=(2, 0))
-            ttk.Label(pane.body, textvariable=self.res_vars[key], width=width, padding=(4, 1)).pack()
-        pane = self._sunken(status, depth=1, body="face")
-        pane.pack(side="left", fill="x", expand=True)
-        ttk.Label(pane.body, textvariable=self.status_var, padding=(4, 1)).pack(fill="x")
+        ttk.Label(left, textvariable=self.status_var, padding=(4, 0)).pack(side="left")
+        ttk.Label(left, text="  |  ", style="Hint.TLabel").pack(side="left")
+        self.status_summary_var = tk.StringVar(value="")
+        ttk.Label(left, textvariable=self.status_summary_var, style="Hint.TLabel").pack(side="left")
 
-        files = ttk.LabelFrame(root, text="Files", padding=inner)
-        files.pack(**group)
+        right = ttk.Frame(row)
+        right.pack(side="right", padx=6, pady=2)
+        self.eta_var = tk.StringVar(value="ETA —")
+        self.speed_var = tk.StringVar(value="Speed —")
+        self.elapsed_var = tk.StringVar(value="Elapsed —")
+        for i, var in enumerate((self.eta_var, self.speed_var, self.elapsed_var)):
+            if i:
+                ttk.Label(right, text="  |  ", style="Hint.TLabel").pack(side="left")
+            ttk.Label(right, textvariable=var, style="Hint.TLabel").pack(side="left")
+
+    def _build_sidebar(self, parent):
+        c = CHROME
+        sidebar = tk.Frame(parent, background=c["bg"], width=SIDEBAR_W)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+
+        self.nav_icon_imgs = {key: (sprite(self, SPRITES[icon], 3, mono=c["muted"]),
+                                    sprite(self, SPRITES[icon], 3, mono=c["accent"]))
+                              for key, _, icon in NAV_ITEMS}
+        self.nav_frames = {}
+        tk.Frame(sidebar, background=c["bg"], height=8).pack(side="top")
+        for key, label, _ in NAV_ITEMS:
+            row = tk.Frame(sidebar, background=c["bg"])
+            row.pack(side="top", fill="x", pady=1)
+            border = tk.Frame(row, background=c["bg"], width=3)
+            border.pack(side="left", fill="y")
+            inner = tk.Frame(row, background=c["bg"])
+            inner.pack(side="left", fill="x", expand=True, pady=7)
+            icon_lbl = tk.Label(inner, image=self.nav_icon_imgs[key][0], background=c["bg"])
+            icon_lbl.pack()
+            text_lbl = tk.Label(inner, text=label, background=c["bg"], foreground=c["muted"],
+                                font=("Fixedsys", 8))
+            text_lbl.pack(pady=(3, 0))
+            self.nav_frames[key] = (row, border, inner, icon_lbl, text_lbl)
+            for w in (row, border, inner, icon_lbl, text_lbl):
+                w.bind("<Button-1>", lambda _e, k=key: self._nav_click(k))
+                w.configure(cursor="hand2")
+
+        tk.Frame(sidebar, background=c["bg"]).pack(side="top", fill="both", expand=True)
+        skyline = tk.Canvas(sidebar, width=SIDEBAR_W, height=76, background=c["bg"],
+                            bd=0, highlightthickness=0)
+        skyline.pack(side="top")
+        self._draw_skyline(skyline)
+        tags = tk.Frame(sidebar, background=c["bg"])
+        tags.pack(side="top", fill="x", pady=(4, 10))
+        for tag in ("LOCAL", "PRIVATE", "OPEN SOURCE", "FOREVER ♥"):
+            tk.Label(tags, text=f"❘ {tag}", background=c["bg"], foreground=c["muted"],
+                     font=("Fixedsys", 7)).pack(anchor="w", padx=14)
+
+    def _draw_skyline(self, c):
+        bg = CHROME
+        c.create_rectangle(0, 0, SIDEBAR_W, 76, fill=bg["bg"], width=0)
+        for x, y, r in ((18, 14, 1), (34, 22, 1), (120, 12, 1), (100, 26, 1), (140, 18, 1)):
+            c.create_oval(x - r, y - r, x + r, y + r, fill=bg["muted"], width=0)
+        c.create_oval(70, 8, 92, 30, fill="#e7e6f0", width=0)
+        c.create_oval(64, 8, 84, 28, fill=bg["bg"], width=0)  # crescent bite
+        c.create_polygon(0, 76, 0, 46, 30, 20, 60, 50, 90, 30, 90, 76,
+                         fill="#2a2750", width=0)
+        c.create_polygon(50, 76, 50, 40, 85, 15, 115, 42, 140, 20, 152, 38, 152, 76,
+                         fill="#201d40", width=0)
+        for bx, bw, bh in ((14, 14, 26), (36, 10, 34), (110, 16, 30), (132, 12, 22)):
+            c.create_rectangle(bx, 76 - bh, bx + bw, 76, fill="#151330", width=0)
+            for wy in range(76 - bh + 5, 72, 8):
+                c.create_rectangle(bx + 3, wy, bx + 6, wy + 3, fill=bg["accent2"], width=0)
+
+    # ── page: Transcribe / Extract Audio ────────────────────────────────────
+    def _section_header(self, frame, icon_key, text):
+        lbl = ttk.Label(frame, text=f" {text}", compound="left", style="SectionTitle.TLabel")
+        self.section_icons.append((lbl, icon_key))
+        return lbl
+
+    def _labelframe(self, parent, icon_key, title, **grid_kw):
+        lf = ttk.LabelFrame(parent, padding=(8, 4, 8, 6))
+        lf.configure(labelwidget=self._section_header(lf, icon_key, title))
+        if grid_kw:
+            lf.grid(**grid_kw)
+        return lf
+
+    def _build_page_transcribe(self, parent):
+        cell = {"sticky": "w", "pady": 2}
+        page = ttk.Frame(parent, padding=(10, 8, 10, 6))
+
+        top = ttk.Frame(page)
+        top.pack(fill="x")
+        top.columnconfigure(0, weight=1, uniform="col")
+        top.columnconfigure(1, weight=1, uniform="col")
+
+        # 1. Select File
+        files_lf = self._labelframe(top, "doc", "1. Select File", row=0, column=0,
+                                    sticky="nsew", padx=(0, 5), pady=(0, 6))
         self.file_var = tk.StringVar()
         self.out_var = tk.StringVar()
-        for row, (label, var, cmd) in enumerate([
-            ("Recording:", self.file_var, self._pick_file),
-            ("Output folder:", self.out_var, self._pick_out),
-        ]):
-            ttk.Label(files, text=label, width=LABEL_W).grid(row=row, column=0, **cell)
-            ttk.Entry(files, textvariable=var).grid(row=row, column=1, sticky="ew", pady=2)
-            ttk.Button(files, text="Browse...", command=cmd).grid(row=row, column=2, padx=(6, 0), pady=2)
-        files.columnconfigure(1, weight=1)
+        ent = ttk.Entry(files_lf, textvariable=self.file_var)
+        ent.grid(row=0, column=0, sticky="ew")
+        ent.bind("<Return>", lambda _: self._update_file_info())
+        ent.bind("<FocusOut>", lambda _: self._update_file_info())
+        ttk.Button(files_lf, text="Browse...", command=self._pick_file).grid(row=0, column=1, padx=(6, 0))
+        files_lf.columnconfigure(0, weight=1)
+        info = self._sunken(files_lf, depth=1, body="well")
+        info.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        info_row = ttk.Frame(info.body, style="Well.TFrame")
+        info_row.pack(fill="x", padx=6, pady=5)
+        self.finfo_icon = tk.Label(info_row)
+        self.finfo_icon.pack(side="left", padx=(0, 8))
+        finfo_text = ttk.Frame(info_row, style="Well.TFrame")
+        finfo_text.pack(side="left", fill="x", expand=True)
+        self.fname_var = tk.StringVar()
+        self.fmeta_var = tk.StringVar()
+        ttk.Label(finfo_text, textvariable=self.fname_var, style="WellBold.TLabel").pack(anchor="w")
+        ttk.Label(finfo_text, textvariable=self.fmeta_var, style="WellHint.TLabel").pack(anchor="w")
 
-        opts = ttk.LabelFrame(root, text="Model", padding=inner)
-        opts.pack(**group)
-
-        ttk.Label(opts, text="Model:", width=LABEL_W).grid(row=0, column=0, **cell)
+        # 2. Model & Language
+        model_lf = self._labelframe(top, "chip", "2. Model & Language", row=0, column=1,
+                                    sticky="nsew", padx=(5, 0), pady=(0, 6))
+        cfg = self.config_data
+        ttk.Label(model_lf, text="Model:", width=LABEL_W).grid(row=0, column=0, **cell)
         saved_model = cfg.get("model")
         self.model_var = tk.StringVar(value=saved_model if saved_model in MODEL_BY_LABEL else MODELS[0].label)
-        cb = self._combo(opts, self.model_var, [m.label for m in MODELS], 60)
-        cb.grid(row=0, column=1, columnspan=5, **cell)
+        cb = self._combo(model_lf, self.model_var, [m.label for m in MODELS], 30)
+        cb.grid(row=0, column=1, columnspan=3, sticky="ew")
         cb.bind("<<ComboboxSelected>>", lambda _: self._on_model_change())
+        model_lf.columnconfigure(1, weight=1)
 
-        ttk.Label(opts, text="Custom model:").grid(row=1, column=0, **cell)
+        ttk.Label(model_lf, text="Custom:", width=LABEL_W).grid(row=1, column=0, **cell)
         self.custom_var = tk.StringVar(value=cfg.get("custom_model", ""))
-        self.custom_entry = ttk.Entry(opts, textvariable=self.custom_var)
-        self.custom_entry.grid(row=1, column=1, columnspan=5, sticky="ew", pady=2)
+        self.custom_entry = ttk.Entry(model_lf, textvariable=self.custom_var)
+        self.custom_entry.grid(row=1, column=1, columnspan=3, sticky="ew", pady=2)
 
-        ttk.Label(opts, text="Language:").grid(row=2, column=0, **cell)
+        ttk.Label(model_lf, text="Language:", width=LABEL_W).grid(row=2, column=0, **cell)
         saved_lang = cfg.get("language")
         self.lang_var = tk.StringVar(value=saved_lang if saved_lang in dict(LANGUAGES) else "Auto-detect")
-        self.lang_combo = self._combo(opts, self.lang_var, [l for l, _ in LANGUAGES], 14)
-        self.lang_combo.grid(row=2, column=1, **cell)
+        self.lang_combo = self._combo(model_lf, self.lang_var, [l for l, _ in LANGUAGES], 10)
+        self.lang_combo.grid(row=2, column=1, sticky="w")
 
-        ttk.Label(opts, text="Task:").grid(row=2, column=2, sticky="w", padx=(16, 6))
+        ttk.Label(model_lf, text="Task:").grid(row=3, column=0, sticky="w", pady=2)
         self.task_var = tk.StringVar(value="transcribe")
-        self.task_combo = self._combo(opts, self.task_var, ["transcribe", "translate"], 11)
-        self.task_combo.grid(row=2, column=3, sticky="w")
-
-        ttk.Label(opts, text="Beam size:").grid(row=2, column=4, sticky="w", padx=(16, 6))
+        self.task_combo = self._combo(model_lf, self.task_var, ["transcribe", "translate"], 10)
+        self.task_combo.grid(row=3, column=1, sticky="w")
+        ttk.Label(model_lf, text="Beam:").grid(row=3, column=2, sticky="w", padx=(10, 4))
         self.beam_var = tk.IntVar(value=5)
-        self.beam_spin = ttk.Spinbox(opts, from_=1, to=10, width=4, textvariable=self.beam_var)
-        self.beam_spin.grid(row=2, column=5, sticky="w")
+        self.beam_spin = ttk.Spinbox(model_lf, from_=1, to=10, width=3, textvariable=self.beam_var)
+        self.beam_spin.grid(row=3, column=3, sticky="w")
 
         self.model_note = tk.StringVar()
-        self.model_note_label = ttk.Label(opts, textvariable=self.model_note)
-        self.model_note_label.grid(row=3, column=1, columnspan=5, sticky="w")
-        opts.columnconfigure(5, weight=1)
+        self.model_note_label = ttk.Label(model_lf, textvariable=self.model_note, style="Hint.TLabel",
+                                          wraplength=320, justify="left")
+        self.model_note_label.grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
 
-        run = ttk.LabelFrame(root, text="Options", padding=inner)
-        run.pack(**group)
-
-        ttk.Label(run, text="Device:", width=LABEL_W).grid(row=0, column=0, **cell)
-        dev = ttk.Frame(run)
+        # 3. Options
+        opts_lf = self._labelframe(top, "wrench", "3. Options", row=1, column=0,
+                                   sticky="nsew", padx=(0, 5))
+        ttk.Label(opts_lf, text="Device:", width=LABEL_W).grid(row=0, column=0, **cell)
+        dev = ttk.Frame(opts_lf)
         dev.grid(row=0, column=1, sticky="w")
         self.device_var = tk.StringVar(value="auto")
         ttk.Radiobutton(dev, text="Auto", value="auto", variable=self.device_var).pack(side="left")
         gpu_btn = ttk.Radiobutton(dev, text=f"GPU{f' ({_GPU_NAME})' if _GPU_NAME else ''}",
                                   value="cuda", variable=self.device_var)
-        gpu_btn.pack(side="left", padx=12)
+        gpu_btn.pack(side="left", padx=10)
         if not cuda_available():
             gpu_btn.state(["disabled"])
         ttk.Radiobutton(dev, text="CPU", value="cpu", variable=self.device_var).pack(side="left")
 
-        ttk.Label(run, text="Audio:").grid(row=1, column=0, **cell)
-        aud = ttk.Frame(run)
+        ttk.Label(opts_lf, text="Audio:", width=LABEL_W).grid(row=1, column=0, **cell)
+        aud = ttk.Frame(opts_lf)
         aud.grid(row=1, column=1, sticky="w")
         self.vad_var = tk.BooleanVar(value=True)
         self.vad_check = ttk.Checkbutton(aud, text="Skip silence (VAD)", variable=self.vad_var)
         self.vad_check.pack(side="left")
         self.boost_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(aud, text="Boost quiet audio", variable=self.boost_var).pack(side="left", padx=16)
+        ttk.Checkbutton(aud, text="Boost quiet audio", variable=self.boost_var).pack(side="left", padx=(12, 0))
 
-        ttk.Label(run, text="Formats:").grid(row=2, column=0, **cell)
-        fmt = ttk.Frame(run)
+        ttk.Label(opts_lf, text="Formats:", width=LABEL_W).grid(row=2, column=0, **cell)
+        fmt = ttk.Frame(opts_lf)
         fmt.grid(row=2, column=1, sticky="w")
         saved_formats = cfg.get("formats", ["txt", "srt"])
         self.fmt_vars = {f: tk.BooleanVar(value=f in saved_formats) for f in FORMATS}
         for f, v in self.fmt_vars.items():
-            ttk.Checkbutton(fmt, text=f.upper(), variable=v).pack(side="left", padx=(0, 12))
+            ttk.Checkbutton(fmt, text=f.upper(), variable=v, command=self._save_prefs).pack(
+                side="left", padx=(0, 5))
 
-        ttk.Label(run, text="Vocabulary:").grid(row=3, column=0, **cell)
+        ttk.Label(opts_lf, text="Vocabulary:", width=LABEL_W).grid(row=3, column=0, sticky="nw", pady=2)
         self.prompt_var = tk.StringVar(value=cfg.get("vocabulary", ""))
-        self.prompt_entry = ttk.Entry(run, textvariable=self.prompt_var)
+        self.prompt_entry = ttk.Entry(opts_lf, textvariable=self.prompt_var)
         self.prompt_entry.grid(row=3, column=1, sticky="ew", pady=2)
-        ttk.Label(run, text="Names and terms to spell correctly, comma-separated (Whisper models)").grid(
-            row=4, column=1, sticky="w")
-        run.columnconfigure(1, weight=1)
+        ttk.Label(opts_lf, text="Names and terms to spell correctly (Whisper models)",
+                 style="Hint.TLabel").grid(row=4, column=1, sticky="w")
+        opts_lf.columnconfigure(1, weight=1)
 
-        conv = ttk.LabelFrame(root, text="Extract audio", padding=inner)
-        conv.pack(**group)
-        ttk.Label(conv, text="Format:", width=LABEL_W).grid(row=0, column=0, **cell)
+        # 4. Audio Extraction
+        extract_lf = self._labelframe(top, "note", "4. Audio Extraction (Optional)", row=1, column=1,
+                                      sticky="nsew", padx=(5, 0))
+        ttk.Label(extract_lf, text="Format:", width=LABEL_W).grid(row=0, column=0, **cell)
         saved_afmt = cfg.get("audio_format")
         self.afmt_var = tk.StringVar(value=saved_afmt if saved_afmt in AUDIO_FORMATS else "mp3")
-        cb = self._combo(conv, self.afmt_var, list(AUDIO_FORMATS), 7)
+        cb = self._combo(extract_lf, self.afmt_var, list(AUDIO_FORMATS), 6)
         cb.grid(row=0, column=1, sticky="w")
         cb.bind("<<ComboboxSelected>>", lambda _: self._on_audio_format_change())
-        ttk.Label(conv, text="Bitrate:").grid(row=0, column=2, sticky="w", padx=(16, 6))
+        ttk.Label(extract_lf, text="Bitrate:").grid(row=0, column=2, sticky="w", padx=(10, 4))
         saved_rate = cfg.get("bitrate")
         self.bitrate_var = tk.StringVar(value=saved_rate if saved_rate in BITRATES else "192k")
-        self.bitrate_combo = self._combo(conv, self.bitrate_var, BITRATES, 6)
+        self.bitrate_combo = self._combo(extract_lf, self.bitrate_var, BITRATES, 6)
         self.bitrate_combo.grid(row=0, column=3, sticky="w")
         self.bitrate_combo.bind("<<ComboboxSelected>>", lambda _: self._save_prefs())
-        ttk.Label(conv, text="Boost quiet audio applies.").grid(
-            row=0, column=4, sticky="w", padx=(16, 6))
-        self.convert_btn = self._icon_button(conv, "Extract", "note", self._convert)
-        self.convert_btn.grid(row=0, column=5, sticky="e")
-        conv.columnconfigure(4, weight=1)
+        ttk.Checkbutton(extract_lf, text="Boost quiet audio", variable=self.boost_var).grid(
+            row=1, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        self.convert_btn = self._icon_button(extract_lf, "Extract Audio", "note", self._convert)
+        self.convert_btn.grid(row=2, column=0, columnspan=4, sticky="e", pady=(8, 0))
+        extract_lf.columnconfigure(3, weight=1)
 
-        actions = ttk.Frame(root)
-        actions.pack(fill="x", padx=8, pady=(0, 6))
-        self.start_btn = self._icon_button(actions, "Transcribe", "play", self._start, default="active")
+        # decorative panel, spanning both rows
+        self._build_decor_panel(top).grid(row=0, column=2, rowspan=2, sticky="ns", padx=(10, 0))
+
+        # 5. Output Folder
+        out_lf = self._labelframe(page, "folder", "5. Output Folder")
+        out_lf.pack(fill="x", pady=(0, 6))
+        ttk.Entry(out_lf, textvariable=self.out_var).grid(row=0, column=0, sticky="ew")
+        ttk.Button(out_lf, text="Browse...", command=self._pick_out).grid(row=0, column=1, padx=(6, 0))
+        out_lf.columnconfigure(0, weight=1)
+
+        # actions
+        actions = ttk.Frame(page)
+        actions.pack(fill="x", pady=(0, 6))
+        self.start_btn = self._icon_button(actions, "Transcribe", "play", self._start,
+                                           default="active", style="Go.TButton")
         self.start_btn.pack(side="left")
         self.cancel_btn = self._icon_button(actions, "Stop", "stop", self._cancel, state="disabled")
         self.cancel_btn.pack(side="left", padx=6)
-        self._icon_button(actions, "Open output folder", "folder", self._open_out).pack(side="right")
+        self.clear_btn = self._icon_button(actions, "Clear", "trash", self._clear_all)
+        self.clear_btn.pack(side="right")
+        self._icon_button(actions, "Open Output Folder", "folder", self._open_out).pack(
+            side="right", padx=(0, 6))
 
-        mapf = ttk.LabelFrame(root, text="Transcript map", padding=inner)
-        mapf.pack(**group)
-        self.readout_var = tk.StringVar(value="Choose a recording, then click Transcribe.")
-        ttk.Label(mapf, textvariable=self.readout_var).pack(anchor="w", pady=(0, 4))
-        well = self._sunken(mapf, depth=2, body="well")
-        well.pack(fill="x")
+        # transcript map
+        map_lf = self._labelframe(page, "chart", "Transcript Map")
+        map_lf.pack(fill="x", pady=(0, 6))
+        head = ttk.Frame(map_lf)
+        head.pack(fill="x")
+        ttk.Label(head, text="Visual overview of where speech occurs in the recording.",
+                 style="Hint.TLabel").pack(side="left")
+        self.legend = tk.Canvas(head, height=MAP_TILE + 4, bd=0, highlightthickness=0)
+        self.legend.pack(side="right")
+        well = self._sunken(map_lf, depth=2, body="well")
+        well.pack(fill="x", pady=(6, 0))
         self.map_canvas = tk.Canvas(well.body, height=MAP_HEIGHT, bd=0, highlightthickness=0)
         self.map_canvas.pack(fill="x")
         self.map_canvas.bind("<Configure>", self._layout_map)
-        self.legend = tk.Canvas(mapf, height=MAP_TILE + 4, bd=0, highlightthickness=0)
-        self.legend.pack(anchor="w", pady=(5, 0))
 
-        logf = ttk.LabelFrame(root, text="Live transcript", padding=inner)
-        logf.pack(fill="both", expand=True, padx=8, pady=(0, 4))
-        well = self._sunken(logf, depth=2, body="field")
+        # bottom split: live transcript | system monitor
+        bottom = ttk.Frame(page)
+        bottom.pack(fill="both", expand=True)
+        log_lf = self._labelframe(bottom, "doc", "Live Transcript")
+        log_lf.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        well = self._sunken(log_lf, depth=2, body="field")
         well.pack(fill="both", expand=True)
         scroll = ttk.Scrollbar(well.body)
         scroll.pack(side="right", fill="y")
-        self.log = tk.Text(well.body, height=6, wrap="word", state="disabled", relief="flat", bd=0,
+        self.log = tk.Text(well.body, height=8, wrap="word", state="disabled", relief="flat", bd=0,
                            highlightthickness=0, padx=4, pady=2, yscrollcommand=scroll.set)
         scroll.configure(command=self.log.yview)
         self.log.tag_configure("path", wrap="char")  # long paths have no spaces to break at
         self.log.pack(fill="both", expand=True)
 
-    # colour scheme
+        mon_wrap = tk.Frame(bottom, width=200)
+        mon_wrap.pack(side="right", fill="y")
+        mon_wrap.pack_propagate(False)
+        mon_lf = self._labelframe(mon_wrap, "chart", "System Monitor")
+        mon_lf.pack(fill="both", expand=True)
+        self.res_vars = {k: tk.StringVar() for k in ("cpu", "ram", "gpu", "vram")}
+        for key, label in (("cpu", "CPU"), ("ram", "RAM"), ("gpu", "GPU"), ("vram", "VRAM")):
+            row = ttk.Frame(mon_lf)
+            row.pack(fill="x", pady=4)
+            top_row = ttk.Frame(row)
+            top_row.pack(fill="x")
+            ttk.Label(top_row, text=label, width=5).pack(side="left")
+            ttk.Label(top_row, textvariable=self.res_vars[key], style="Hint.TLabel").pack(side="right")
+            meter = self._sunken(row, depth=1, body="well")
+            meter.pack(fill="x", pady=(2, 0))
+            canvas = tk.Canvas(meter.body, height=10, bd=0, highlightthickness=0)
+            canvas.pack(fill="x")
+            canvas.bind("<Configure>", lambda _e, k=key: self._set_meter(k, self.meter_frac.get(k, 0)))
+            self.meter_canvas[key] = canvas
+            self.meter_frac[key] = 0.0
+
+        return page
+
+    def _build_decor_panel(self, parent):
+        p = PANEL
+        outer = tk.Frame(parent, background=p["bg"], width=190)
+        outer.pack_propagate(False)
+        stars = tk.Frame(outer, background=p["bg"])
+        stars.pack(fill="x", pady=(8, 0))
+        tk.Label(stars, text="✦", background=p["bg"], foreground=p["accent2"],
+                 font=("Fixedsys", 10)).pack(side="left", padx=(12, 0))
+        tk.Label(stars, text="✦", background=p["bg"], foreground=p["accent"],
+                 font=("Fixedsys", 8)).pack(side="right", padx=(0, 14))
+
+        bullets = tk.Frame(outer, background=p["bg"])
+        bullets.pack(fill="x", padx=14, pady=(6, 10))
+        for line in ("NO CLOUD.", "NO DATA LEAKS.", "JUST YOUR MACHINE."):
+            tk.Label(bullets, text=f"■ {line}", background=p["bg"], foreground=p["text"],
+                     font=("Fixedsys", 8), anchor="w").pack(fill="x", pady=1)
+
+        art = tk.Frame(outer, background=p["bg"])
+        art.pack(pady=4)
+        # keep references — an unreferenced PhotoImage is garbage-collected and vanishes
+        self._panel_imgs = [sprite(self, SPRITES["computer_face"], 6, mono=p["accent"]),
+                            sprite(self, SPRITES["plant"], 5, mono=p["accent2"])]
+        tk.Label(art, image=self._panel_imgs[0], background=p["bg"]).pack(side="left")
+        tk.Label(art, image=self._panel_imgs[1], background=p["bg"]).pack(
+            side="left", padx=(4, 0), anchor="s")
+
+        tk.Frame(outer, background=p["bg"]).pack(fill="both", expand=True)
+        foot = tk.Frame(outer, background=p["bg"])
+        foot.pack(fill="x", pady=(0, 12))
+        tk.Label(foot, text="GOOD TRANSCRIPTS", background=p["bg"], foreground=p["accent"],
+                 font=("Fixedsys", 8), justify="center").pack()
+        tk.Label(foot, text="BETTER IDEAS ♥", background=p["bg"], foreground=p["accent"],
+                 font=("Fixedsys", 8), justify="center").pack()
+        return outer
+
+    # ── page: History ────────────────────────────────────────────────────────
+    def _build_page_history(self, parent):
+        page = ttk.Frame(parent, padding=(10, 8, 10, 6))
+        head = ttk.Frame(page)
+        head.pack(fill="x", pady=(0, 6))
+        self._section_header_standalone(head, "clock", "History").pack(side="left")
+        ttk.Label(head, text="   Recent transcription and extraction jobs.",
+                 style="Hint.TLabel").pack(side="left")
+        ttk.Button(head, text="Clear history", command=self._clear_history).pack(side="right")
+
+        wrap = self._sunken(page, depth=2, body="field")
+        wrap.pack(fill="both", expand=True)
+        cols = ("time", "action", "file", "status")
+        self.history_tree = ttk.Treeview(wrap.body, columns=cols, show="headings", height=18)
+        for col, label, w in (("time", "Time", 130), ("action", "Action", 140),
+                              ("file", "File", 340), ("status", "Status", 220)):
+            self.history_tree.heading(col, text=label)
+            self.history_tree.column(col, width=w, anchor="w")
+        scroll = ttk.Scrollbar(wrap.body, command=self.history_tree.yview)
+        self.history_tree.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.history_tree.pack(fill="both", expand=True)
+        self.history_tree.bind("<Double-1>", self._history_open)
+        ttk.Label(page, text="Double-click a row to open its output folder.",
+                 style="Hint.TLabel").pack(anchor="w", pady=(4, 0))
+        self._refresh_history()
+        return page
+
+    def _section_header_standalone(self, parent, icon_key, text):
+        """A section title with an icon, for pages that have no LabelFrame to hang it on."""
+        return self._section_header(parent, icon_key, text)
+
+    def _refresh_history(self):
+        if not hasattr(self, "history_tree"):
+            return
+        self.history_tree.delete(*self.history_tree.get_children())
+        self.history_rows = {}
+        for entry in self.history:
+            iid = self.history_tree.insert("", "end", values=(
+                entry.get("time", ""), entry.get("action", ""),
+                entry.get("file", ""), entry.get("status", "")))
+            self.history_rows[iid] = entry
+
+    def _history_open(self, _event):
+        sel = self.history_tree.selection()
+        if not sel:
+            return
+        entry = self.history_rows.get(sel[0])
+        outputs = entry.get("outputs") if entry else None
+        if not outputs:
+            return
+        folder = str(Path(outputs[0]).parent)
+        if Path(folder).is_dir():
+            os.startfile(folder) if sys.platform == "win32" else subprocess.Popen(["xdg-open", folder])
+
+    def _clear_history(self):
+        if self.history and messagebox.askyesno("Transcriber", "Clear the job history?"):
+            self.history = []
+            save_history(self.history)
+            self._refresh_history()
+
+    def _record_history(self, action, file, outputs, status):
+        entry = {"time": time.strftime("%Y-%m-%d %H:%M"), "action": action,
+                 "file": Path(file).name if file else "—", "outputs": outputs, "status": status}
+        self.history.insert(0, entry)
+        self.history = self.history[:HISTORY_LIMIT]
+        save_history(self.history)
+        self._refresh_history()
+
+    # ── page: Settings ──────────────────────────────────────────────────────
+    def _build_page_settings(self, parent):
+        page = ttk.Frame(parent, padding=(10, 8, 10, 6))
+        self._section_header_standalone(page, "gear", "Settings").pack(anchor="w", pady=(0, 8))
+
+        appearance = self._labelframe(page, "chart", "Appearance")
+        appearance.pack(fill="x", pady=(0, 6))
+        group_names = {0: "Signature", 1: "Windows classics", 2: "Modern"}
+        col = 0
+        for i, names in enumerate(SCHEME_GROUPS):
+            ttk.Label(appearance, text=group_names.get(i, ""), style="Hint.TLabel").grid(
+                row=0, column=col, sticky="w", padx=(0 if col == 0 else 20, 0))
+            for r, name in enumerate(names, start=1):
+                ttk.Radiobutton(appearance, text=name, value=name, variable=self.scheme_var,
+                               command=self._apply_scheme).grid(
+                    row=r, column=col, sticky="w", padx=(0 if col == 0 else 20, 0), pady=1)
+            col += 1
+
+        behavior = self._labelframe(page, "wrench", "Behavior")
+        behavior.pack(fill="x", pady=(0, 6))
+        ttk.Checkbutton(behavior, text="Play a sound when a job finishes", variable=self.sound_var,
+                       command=self._save_prefs).grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(behavior, text="Default output folder:", width=20).grid(
+            row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(behavior, textvariable=self.default_out_var).grid(
+            row=1, column=1, sticky="ew", pady=(6, 0))
+        ttk.Button(behavior, text="Browse...", command=self._pick_default_out).grid(
+            row=1, column=2, padx=(6, 0), pady=(6, 0))
+        ttk.Label(behavior, text="Used to fill Output Folder when it's empty.",
+                 style="Hint.TLabel").grid(row=2, column=1, sticky="w")
+        behavior.columnconfigure(1, weight=1)
+
+        ttk.Label(page, text=f"Preferences: {CONFIG_PATH}\nHistory: {HISTORY_PATH}",
+                 style="Hint.TLabel", justify="left").pack(anchor="w", pady=(6, 0))
+        return page
+
+    def _pick_default_out(self):
+        path = filedialog.askdirectory()
+        if path:
+            self.default_out_var.set(path)
+            self._save_prefs()
+
+    # ── navigation ───────────────────────────────────────────────────────────
+    def _nav_click(self, key):
+        if key == "about":
+            self._about()
+            return
+        self.active_nav = key
+        self._restyle_nav()
+        self.pages[key].tkraise()
+
+    def _restyle_nav(self):
+        c = CHROME
+        for key, (row, border, inner, icon_lbl, text_lbl) in self.nav_frames.items():
+            active = key == self.active_nav
+            bg = c["active"] if active else c["bg"]
+            border.configure(background=c["accent"] if active else c["bg"])
+            for w in (row, inner, icon_lbl, text_lbl):
+                w.configure(background=bg)
+            icon_lbl.configure(image=self.nav_icon_imgs[key][1 if active else 0])
+            text_lbl.configure(foreground=c["text"] if active else c["muted"])
+
+    # ── colour scheme (content area only — sidebar/ribbon/panel stay fixed) ─
     def _apply_scheme(self):
         t = self.t = SCHEMES.get(self.scheme_var.get(), SCHEMES[DEFAULT_SCHEME])
         s = self.style
@@ -837,6 +1382,18 @@ class App(tk.Tk):
                     troughcolor=t["trough"], arrowcolor=t["text"], focuscolor=t["text"],
                     indicatorcolor=t["field"])
         s.configure("TLabelframe.Label", foreground=t["text"])
+        s.configure("SectionTitle.TLabel", font=self.bold_font, foreground=t["text"])
+        s.configure("Hint.TLabel", foreground=t["muted"])
+        s.configure("WellBold.TLabel", font=self.bold_font, foreground=t["well_text"],
+                    background=t["well"])
+        s.configure("WellHint.TLabel", foreground=t["well_muted"], background=t["well"])
+        s.configure("Well.TFrame", background=t["well"])
+        # "well" (a scheme's extreme background) reliably contrasts against "speech" — unlike
+        # field_text, which Terminal deliberately sets equal to speech (one colour, on purpose)
+        s.configure("Go.TButton", background=t["speech"], foreground=t["well"], font=self.bold_font)
+        s.map("Go.TButton", background=[("disabled", t["face"]), ("pressed", t["speech"]),
+                                        ("active", t["speech"])],
+              foreground=[("disabled", t["disabled"])])
         emboss = t.get("emboss", True)
         s.map(".", foreground=[("disabled", t["disabled"])], embossed=[("disabled", int(emboss))],
               background=[("disabled", t["face"]), ("active", t["face"])])
@@ -855,6 +1412,12 @@ class App(tk.Tk):
                   arrowcolor=[("disabled", t["disabled"])])
         s.map("TScrollbar", background=[("active", t["face"]), ("pressed", t["face"])],
               arrowcolor=[("disabled", t["disabled"])])
+        s.configure("Treeview", background=t["field"], fieldbackground=t["field"],
+                    foreground=t["field_text"])
+        s.map("Treeview", background=[("selected", t["select"])],
+              foreground=[("selected", t["select_text"])])
+        s.configure("Treeview.Heading", background=t["face"], foreground=t["text"])
+        s.map("Treeview.Heading", background=[("active", t["face"])])
 
         self.configure(background=t["face"])
         for well in self.sunkens:
@@ -874,19 +1437,41 @@ class App(tk.Tk):
                              "-selectforeground", t["select_text"], "-font", self.ui_font)
             except tk.TclError:
                 pass
-        for name in ("play", "stop", "folder", "note"):
+        for name in ("play", "stop", "folder", "note", "trash"):
             self.icons[name] = sprite(self, SPRITES[name], 2, outline=t["text"],
                                       mono=t["shadow"] if t.get("mono_icons") else None)
             self.icons[name + "_off"] = sprite(self, SPRITES[name], 2,
                                                emboss=(t["light"] if emboss else t["face"], t["shadow"]))
         for button, name in self.icon_buttons:
             button.configure(image=(self.icons[name], "disabled", self.icons[name + "_off"]))
+        for label, key in self.section_icons:
+            img = sprite(self, SPRITES[key], 2, mono=t["text"])
+            self.icons.setdefault("_section", {})[key] = img  # keep a reference alive
+            label.configure(image=img)
+        self._update_file_icon()
+        for key, frac in self.meter_frac.items():
+            self._set_meter(key, frac)
         self.map_drawn = []
         self._paint_map()
         self._draw_legend()
+        self._update_status_dot()
         self._save_prefs()
 
-    # transcript map: a Disk Defragmenter-style grid of blocks covering the whole media
+    # ── pixel meters (System Monitor) ───────────────────────────────────────
+    def _set_meter(self, key, frac):
+        self.meter_frac[key] = frac
+        canvas = self.meter_canvas.get(key)
+        if not canvas:
+            return
+        canvas.delete("fill")
+        w = canvas.winfo_width()
+        if w <= 1:
+            return
+        h = canvas.winfo_height() or 10
+        canvas.create_rectangle(0, 0, max(2, int(w * frac)), h, fill=self.t["speech"],
+                                width=0, tags="fill")
+
+    # ── transcript map: a Disk Defragmenter-style grid covering the whole media ─
     @staticmethod
     def _draw_tile(canvas, x, y):
         """A raised block: fill, a light top-left edge and a shadow bottom-right edge."""
@@ -952,9 +1537,9 @@ class App(tk.Tk):
         c.delete("all")
         c.configure(background=t["face"])
         if self.map_mode == "extract":
-            items = [("speech", "Extracted"), ("working", "Working"), ("waiting", "Not reached")]
+            items = [("speech", "Extracted"), ("working", "Processing"), ("waiting", "Not reached")]
         else:
-            items = [("speech", "Speech"), ("silent", "No speech"), ("working", "Working"),
+            items = [("speech", "Speech"), ("silent", "No speech"), ("working", "Processing"),
                      ("waiting", "Not reached")]
         x, mid = 2, (MAP_TILE + 4) // 2
         for state, label in items:
@@ -971,7 +1556,7 @@ class App(tk.Tk):
             self._paint_map()
             self.blink_after = self.after(450, self._blink)
 
-    # model-dependent controls
+    # ── model-dependent controls ─────────────────────────────────────────────
     def _on_model_change(self):
         spec = MODEL_BY_LABEL[self.model_var.get()]
         whisper = spec.engine == "whisper"
@@ -995,13 +1580,48 @@ class App(tk.Tk):
         self.bitrate_combo.state(["!disabled", "readonly"] if lossy else ["disabled"])
         self._save_prefs()
 
-    # actions
+    # ── file selection ───────────────────────────────────────────────────────
     def _pick_file(self):
         path = filedialog.askopenfilename(filetypes=MEDIA_TYPES)
         if path:
             self.file_var.set(path)
             if not self.out_var.get():
-                self.out_var.set(str(Path(path).parent))
+                self.out_var.set(self.default_out_var.get() or str(Path(path).parent))
+            self._update_file_info()
+
+    def _update_file_icon(self):
+        if not hasattr(self, "finfo_icon"):
+            return
+        ext = Path(self.file_var.get()).suffix.lower()
+        key = "doc" if ext in VIDEO_EXT or not ext else "note"
+        img = sprite(self, SPRITES[key], 3, mono=self.t["well_muted"])
+        self.icons.setdefault("_finfo", {})[key] = img
+        self.finfo_icon.configure(image=img, background=self.t["well"])
+
+    def _update_file_info(self):
+        path = self.file_var.get().strip()
+        p = Path(path)
+        if not path or not p.is_file():
+            self.fname_var.set("No file selected")
+            self.fmeta_var.set("Choose a recording to see its details.")
+            return
+        try:
+            size = human_size(p.stat().st_size)
+        except OSError:
+            size = "—"
+        ext = p.suffix.upper().lstrip(".")
+        dur_txt = "—"
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg:
+            try:
+                d = media_duration(ffmpeg, path)
+                if d:
+                    dur_txt = hhmmss(d)
+            except Exception:
+                pass
+        self.fname_var.set(p.name)
+        self.fmeta_var.set(f"{ext}  ·  {dur_txt}  ·  {size}")
+        self._update_file_icon()
 
     def _pick_out(self):
         path = filedialog.askdirectory()
@@ -1013,6 +1633,7 @@ class App(tk.Tk):
         if folder and Path(folder).is_dir():
             os.startfile(folder) if sys.platform == "win32" else subprocess.Popen(["xdg-open", folder])
 
+    # ── run / convert ────────────────────────────────────────────────────────
     def _start(self):
         file = self.file_var.get().strip()
         formats = [f for f, v in self.fmt_vars.items() if v.get()]
@@ -1024,7 +1645,7 @@ class App(tk.Tk):
             return messagebox.showwarning("Transcriber", "Pick at least one output format.")
         if not model_id:
             return messagebox.showwarning("Transcriber", "Enter a custom model repo id or folder.")
-        out_dir = self.out_var.get().strip() or str(Path(file).parent)
+        out_dir = self.out_var.get().strip() or self.default_out_var.get() or str(Path(file).parent)
         self.out_var.set(out_dir)
         try:
             beam = max(1, min(10, int(self.beam_var.get())))
@@ -1043,7 +1664,7 @@ class App(tk.Tk):
         file = self.file_var.get().strip()
         if not file or not Path(file).is_file():
             return messagebox.showwarning("Transcriber", "Choose an audio or video file first.")
-        out_dir = self.out_var.get().strip() or str(Path(file).parent)
+        out_dir = self.out_var.get().strip() or self.default_out_var.get() or str(Path(file).parent)
         self.out_var.set(out_dir)
         opts = {"file": file, "out_dir": out_dir, "format": self.afmt_var.get(),
                 "bitrate": self.bitrate_var.get(), "boost": self.boost_var.get()}
@@ -1057,11 +1678,16 @@ class App(tk.Tk):
         self.map_active, self.map_reached, self.map_speech, self.blink_on = True, 0, [], True
         self._paint_map()
         self._draw_legend()
-        self.readout_var.set("Starting…")
+        self.eta_var.set("ETA —")
+        self.speed_var.set("Speed —")
+        self.elapsed_var.set("Elapsed 00:00")
+        self.status_state = "running"
+        self._update_status_dot()
         if self.animate and not self.blink_after:
             self.blink_after = self.after(450, self._blink)
         self.start_btn.state(["disabled"])
         self.convert_btn.state(["disabled"])
+        self.clear_btn.state(["disabled"])
         self.cancel_btn.state(["!disabled"])
         self.job = job
         self.job.start()
@@ -1073,6 +1699,36 @@ class App(tk.Tk):
                                 if isinstance(self.job, Job) else "Stopping…")
             self.cancel_btn.state(["disabled"])
 
+    def _clear_all(self):
+        if self.job:
+            return
+        self._clear_log()
+        self.duration, self.map_reached, self.map_speech = 0, 0, []
+        self.map_active = False
+        self._paint_map()
+        self.status_var.set("Ready")
+        self.status_state = "idle"
+        self._update_status_dot()
+        self.eta_var.set("ETA —")
+        self.speed_var.set("Speed —")
+        self.elapsed_var.set("Elapsed —")
+
+    def _update_status_dot(self):
+        if not hasattr(self, "status_dot"):
+            return
+        color = {"idle": self.t.get("muted", self.t["disabled"]), "running": self.t["speech"],
+                 "error": self.t["working"]}.get(self.status_state, self.t["text"])
+        self.status_dot.configure(background=self.t["face"], foreground=color)
+
+    def _update_status_summary(self):
+        if not hasattr(self, "fmt_vars"):
+            return
+        fmts = ",".join(f.upper() for f, v in self.fmt_vars.items() if v.get()) or "none"
+        model_short = self.model_var.get().split(" — ")[0]
+        self.status_summary_var.set(
+            f"Model: {model_short}   Device: {self.device_var.get()}   "
+            f"Language: {self.lang_var.get()}   Formats: {fmts}")
+
     def _save_prefs(self):
         if not hasattr(self, "afmt_var"):  # still building the window
             return
@@ -1083,7 +1739,9 @@ class App(tk.Tk):
             "formats": [f for f, v in self.fmt_vars.items() if v.get()],
             "vocabulary": self.prompt_var.get(),
             "audio_format": self.afmt_var.get(), "bitrate": self.bitrate_var.get(),
+            "default_out": self.default_out_var.get(),
         })
+        self._update_status_summary()
 
     def _close(self):
         self._save_prefs()
@@ -1092,6 +1750,10 @@ class App(tk.Tk):
         self.destroy()
 
     def _about(self):
+        prev = self.active_nav
+        self.active_nav = "about"
+        self._restyle_nav()
+
         win = tk.Toplevel(self, background=self.t["face"])
         win.title("About Local Transcriber")
         win.resizable(False, False)
@@ -1099,20 +1761,29 @@ class App(tk.Tk):
         body = ttk.Frame(win, padding=(14, 14, 14, 10))
         body.pack(fill="both", expand=True)
         ttk.Label(body, image=self.app_icons[2]).grid(row=0, column=0, rowspan=3, sticky="n", padx=(0, 14))
-        ttk.Label(body, text="Local Transcriber", font=self.bold_font).grid(row=0, column=1, sticky="w")
+        ttk.Label(body, text=f"Local Transcriber v{VERSION}", font=self.bold_font).grid(
+            row=0, column=1, sticky="w")
+        ttk.Label(body, text=TAGLINE, style="Hint.TLabel").grid(row=1, column=1, sticky="w")
         ttk.Label(body, text="Transcribes audio and video on this computer.\nNothing is uploaded.",
-                  justify="left").grid(row=1, column=1, sticky="w", pady=(4, 0))
-        ttk.Label(body, text="Speech: faster-whisper and onnx-asr (Parakeet)\nAudio: ffmpeg",
                   justify="left").grid(row=2, column=1, sticky="w", pady=(8, 0))
-        ttk.Separator(body).grid(row=3, column=1, sticky="ew", pady=10)
+        ttk.Label(body, text="Speech: faster-whisper and onnx-asr (Parakeet)\nAudio: ffmpeg",
+                  justify="left").grid(row=3, column=1, sticky="w", pady=(8, 0))
+        ttk.Separator(body).grid(row=4, column=1, sticky="ew", pady=10)
         memory = psutil.virtual_memory().total / 2**30
         ttk.Label(body, text=f"Physical memory: {memory:.0f} GB\n"
                              f"Graphics: {_GPU_NAME or 'no NVIDIA GPU found'}",
-                  justify="left").grid(row=4, column=1, sticky="w")
-        ok = ttk.Button(body, text="OK", width=10, default="active", command=win.destroy)
-        ok.grid(row=5, column=1, sticky="e", pady=(12, 0))
-        win.bind("<Return>", lambda _: win.destroy())
-        win.bind("<Escape>", lambda _: win.destroy())
+                  justify="left").grid(row=5, column=1, sticky="w")
+
+        def _close_about():
+            win.destroy()
+            self.active_nav = prev
+            self._restyle_nav()
+
+        ok = ttk.Button(body, text="OK", width=10, default="active", command=_close_about)
+        ok.grid(row=6, column=1, sticky="e", pady=(12, 0))
+        win.bind("<Return>", lambda _: _close_about())
+        win.bind("<Escape>", lambda _: _close_about())
+        win.protocol("WM_DELETE_WINDOW", _close_about)
         win.update_idletasks()
         x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
         y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 3
@@ -1120,7 +1791,7 @@ class App(tk.Tk):
         ok.focus_set()
         win.grab_set()
 
-    # event loop
+    # ── event loop ───────────────────────────────────────────────────────────
     def _drain_events(self):
         try:
             while True:
@@ -1140,8 +1811,6 @@ class App(tk.Tk):
         self.duration = duration
         self.started_at = time.time()
         self._append(f"— {short(duration)} of media · {summary} —")
-        if duration:
-            self.readout_var.set(f"00:00 / {short(duration)}  (0%)")
         self._paint_map()
 
     def _on_progress(self, position, text=None, start=None):
@@ -1153,39 +1822,52 @@ class App(tk.Tk):
         self._paint_map()
         if not self.duration:
             return
-        frac = min(position / self.duration, 1.0)
         elapsed = time.time() - self.started_at
         speed = position / elapsed if elapsed > 0 else 0
         eta = (self.duration - position) / speed if speed > 0 else 0
-        self.readout_var.set(f"{short(position)} / {short(self.duration)}  ({frac:.0%})  ·  "
-                             f"ETA {short(eta)}  ·  {speed:.1f}× realtime")
+        self.eta_var.set(f"ETA {short(eta)}")
+        self.speed_var.set(f"Speed {speed:.1f}×")
 
     def _on_done(self, files, partial, count=None):
+        action = "Extracted audio" if isinstance(self.job, Convert) else "Transcribed"
+        job_file = self.job.opts.get("file") if self.job else self.file_var.get()
         self.map_active = False
         if not partial and self.duration:
             self.map_reached = self.duration
-            self.readout_var.set(f"{short(self.duration)} / {short(self.duration)}  (100%)")
         self._paint_map()
         elapsed = short(time.time() - (self.started_at or time.time()))
+        self.elapsed_var.set(f"Elapsed {elapsed}")
+        self.eta_var.set("ETA —")
+        self.speed_var.set("Speed —")
         if partial:
             state = "Stopped — partial transcript saved" if files else "Stopped"
         else:
             state = "Done"
         segments = f" · {count} segments" if count is not None else ""
         self.status_var.set(f"{state}{segments} · {elapsed}")
+        self.status_state = "idle"
+        self._update_status_dot()
         if files:
             self._append("Saved:")
             for f in files:
                 self._append(f"  {f}", "path")
         if not partial and self.sound_var.get():
             play_sound("tada")
+        self._record_history(action, job_file, files, state)
         self._reset_buttons()
 
     def _on_error(self, text):
+        action = "Extracted audio" if isinstance(self.job, Convert) else "Transcribed"
+        job_file = self.job.opts.get("file") if self.job else self.file_var.get()
         self.map_active = False
         self._paint_map()
         self.status_var.set("Failed")
+        self.status_state = "error"
+        self._update_status_dot()
+        self.eta_var.set("ETA —")
+        self.speed_var.set("Speed —")
         self._append(f"ERROR: {text}")
+        self._record_history(action, job_file, [], "Failed")
         self._reset_buttons()
         messagebox.showerror("Transcriber", text)
 
@@ -1193,30 +1875,40 @@ class App(tk.Tk):
         self.job = None
         self.start_btn.state(["!disabled"])
         self.convert_btn.state(["!disabled"])
+        self.clear_btn.state(["!disabled"])
         self.cancel_btn.state(["disabled"])
 
-    # resources
+    # ── resources ────────────────────────────────────────────────────────────
     def _sample_resources(self):
         try:
             cores = psutil.cpu_count() or 1
             proc_cpu = min(self.proc.cpu_percent(None) / cores, 100)
-            self.res_vars["cpu"].set(f"CPU {proc_cpu:.0f}% · all {psutil.cpu_percent(None):.0f}%")
+            sys_cpu = psutil.cpu_percent(None)
+            self.res_vars["cpu"].set(f"{sys_cpu:.0f}%")
+            self._set_meter("cpu", sys_cpu / 100)
             vm = psutil.virtual_memory()
             rss = self.proc.memory_info().rss / 2**30
-            self.res_vars["ram"].set(f"RAM {rss:.1f} GB · {vm.percent:.0f}% used")
+            self.res_vars["ram"].set(f"{rss:.1f} / {vm.total / 2**30:.0f} GB")
+            self._set_meter("ram", vm.percent / 100)
             if _GPU_HANDLE is not None:
                 util = pynvml.nvmlDeviceGetUtilizationRates(_GPU_HANDLE).gpu
                 mem = pynvml.nvmlDeviceGetMemoryInfo(_GPU_HANDLE)
-                self.res_vars["gpu"].set(f"GPU {util}%")
-                self.res_vars["vram"].set(f"VRAM {mem.used / 2**30:.1f}/{mem.total / 2**30:.0f} GB")
+                self.res_vars["gpu"].set(f"{util}%")
+                self._set_meter("gpu", util / 100)
+                self.res_vars["vram"].set(f"{mem.used / 2**30:.1f} / {mem.total / 2**30:.0f} GB")
+                self._set_meter("vram", mem.used / mem.total if mem.total else 0)
             else:
-                self.res_vars["gpu"].set("No NVIDIA GPU")
-                self.res_vars["vram"].set("VRAM —")
+                self.res_vars["gpu"].set("n/a")
+                self.res_vars["vram"].set("n/a")
+                self._set_meter("gpu", 0)
+                self._set_meter("vram", 0)
+            if self.job is not None and self.started_at:
+                self.elapsed_var.set(f"Elapsed {short(time.time() - self.started_at)}")
         except Exception:
             pass
-        self.after(1000, self._sample_resources)
+        self.after(250, self._sample_resources)
 
-    # log
+    # ── log ──────────────────────────────────────────────────────────────────
     def _append(self, text, tag=None):
         self.log.configure(state="normal")
         self.log.insert("end", text + "\n", tag)
@@ -1227,6 +1919,22 @@ class App(tk.Tk):
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
+
+    # ── small widget factories used throughout the pages above ──────────────
+    def _combo(self, parent, var, values, width):
+        cb = ttk.Combobox(parent, textvariable=var, state="readonly", width=width, values=values)
+        self.combos.append(cb)
+        return cb
+
+    def _sunken(self, parent, depth=2, body="field"):
+        well = Sunken(parent, depth, body)
+        self.sunkens.append(well)
+        return well
+
+    def _icon_button(self, parent, text, icon, command, **kw):
+        button = ttk.Button(parent, text=text, command=command, compound="left", **kw)
+        self.icon_buttons.append((button, icon))
+        return button
 
 
 if __name__ == "__main__":
